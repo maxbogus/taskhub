@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "taskhub": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/home/maxbogus/Repositories/taskhub",
+        "taskhub-mcp"
+      ],
+      "env": {
+        "TASKHUB_DB_URL": "sqlite+aiosqlite:////home/maxbogus/.taskhub/taskhub.db",
+        "TASKHUB_TRANSPORT": "stdio"
+      }
+    }
+  }
+}
