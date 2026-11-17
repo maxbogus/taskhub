@@ -21,6 +21,9 @@ M4: Cline task-history ingestion (model, tokens, cost, active time), manual
 `log_activity`, per-task and per-project aggregation with `task_metrics` and
 `metrics_report`; `Session.project_id` links metric-only sessions to projects.
 
+M5: unified role-aware workflow with gates — `change_status`, `get_workflow`,
+`update_task`; audit notes on every transition; project-level flow overrides.
+
 ## Requirements
 
 - Python 3.12

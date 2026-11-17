@@ -16,7 +16,16 @@ from taskhub.repo.work_items import create_item, get_item, next_item
 from taskhub.services.backlog_importer import import_backlog as import_backlog_service
 from taskhub.services.backup import create_backup
 from taskhub.services.evaluation import evaluate_project as evaluate_project_service
-from taskhub.services.gates import blocking_items
+from taskhub.services.gates import (
+    FlowError,
+    blocking_items,
+)
+from taskhub.services.gates import (
+    change_status as change_status_service,
+)
+from taskhub.services.gates import (
+    workflow_info as workflow_info_service,
+)
 from taskhub.services.metric_ingest import (
     ingest_cline_tasks,
 )
@@ -188,6 +197,85 @@ async def get_next_item(
                 "project": scope.project.slug,
             }
         return {"item": serialize_item(item), "project": scope.project.slug}
+
+
+async def update_task(
+    item_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    priority: int | None = None,
+    estimate_hours: float | None = None,
+    due_at: str | None = None,
+    required_skill: str | None = None,
+    acceptance_criteria: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Update mutable fields; status changes must go through ``change_status``."""
+
+    async with session_scope() as session:
+        item = await get_item(session, item_id)
+        if item is None:
+            raise ValueError(f"work item '{item_id}' not found")
+        if title is not None:
+            item.title = title
+        if description is not None:
+            item.description = description
+        if priority is not None:
+            item.priority = priority
+        if estimate_hours is not None:
+            item.estimate_hours = estimate_hours
+        if due_at is not None:
+            item.due_at = _parse_dt(due_at)
+        if required_skill is not None:
+            item.required_skill = required_skill
+        if acceptance_criteria is not None:
+            item.acceptance_criteria = acceptance_criteria
+        if meta is not None:
+            merged = dict(item.meta or {})
+            merged.update(meta)
+            item.meta = merged
+        await session.commit()
+        return serialize_item(item, compact=False)
+
+
+async def change_status(
+    item_id: str,
+    target_status: str,
+    role: str = "agent",
+    actor: str = "mcp-client",
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Move a work item through the role-aware workflow with gates."""
+
+    async with session_scope() as session:
+        try:
+            result = await change_status_service(
+                session,
+                item_id,
+                target_status,
+                role=role,
+                actor=actor,
+                note=note,
+            )
+            await session.commit()
+        except FlowError as exc:
+            raise ValueError(str(exc)) from exc
+        return {
+            "item_id": result.item_id,
+            "from_status": result.from_status,
+            "to_status": result.to_status,
+            "note_id": result.note_id,
+        }
+
+
+async def get_workflow(item_id: str, role: str = "agent") -> dict[str, Any]:
+    """Return current status, allowed targets and gate errors."""
+
+    async with session_scope() as session:
+        try:
+            return await workflow_info_service(session, item_id, role)
+        except FlowError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 async def list_projects() -> list[dict[str, Any]]:
