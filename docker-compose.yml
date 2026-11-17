@@ -1,0 +1,58 @@
+services:
+  taskhub-web:
+    build: .
+    image: taskhub:local
+    command: ["taskhub-web"]
+    restart: unless-stopped
+    environment:
+      TASKHUB_DB_URL: sqlite+aiosqlite:////data/taskhub.db
+      TASKHUB_HOST: 0.0.0.0
+      TASKHUB_WEB_PORT: "8000"
+      TASKHUB_BACKUP_DIR: /backups
+      TASKHUB_BACKUP_KEEP: "7"
+    ports:
+      - "8000:8000"
+    volumes:
+      - taskhub-data:/data
+      - taskhub-backups:/backups
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  taskhub-mcp:
+    build: .
+    image: taskhub:local
+    command: ["taskhub-mcp"]
+    restart: unless-stopped
+    environment:
+      TASKHUB_DB_URL: sqlite+aiosqlite:////data/taskhub.db
+      TASKHUB_TRANSPORT: http
+      TASKHUB_HOST: 0.0.0.0
+      TASKHUB_PORT: "7801"
+      TASKHUB_BACKUP_DIR: /backups
+    ports:
+      - "7801:7801"
+    volumes:
+      - taskhub-data:/data
+      - taskhub-backups:/backups
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import socket; socket.create_connection(('127.0.0.1', 7801), 2)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  taskhub-data:
+  taskhub-backups:
