@@ -122,6 +122,7 @@ class Project(Base):
     work_items: Mapped[list[WorkItem]] = relationship(back_populates="project")
     documents: Mapped[list[Document]] = relationship(back_populates="project")
     templates: Mapped[list[TaskTemplate]] = relationship(back_populates="project")
+    sessions: Mapped[list[Session]] = relationship(back_populates="project")
 
 
 class Instance(Base):
@@ -333,6 +334,9 @@ class Session(Base):
     __tablename__ = "session"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("project.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     work_item_id: Mapped[str | None] = mapped_column(
         ForeignKey("work_item.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -351,6 +355,7 @@ class Session(Base):
     meta: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
     work_item: Mapped[WorkItem | None] = relationship(back_populates="sessions")
+    project: Mapped[Project | None] = relationship(back_populates="sessions")
     metrics: Mapped[list[Metric]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )

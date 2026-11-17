@@ -4,7 +4,7 @@ Local MCP-native single source of truth for tasks, projects, notes and metrics.
 Replaces scattered file backlogs (`*/ai/tasks/`, `*/docs/backlog/`,
 `shared-infrastructure/tasks/`) with one database and one workflow.
 
-## Status (M1 + M2 + M3)
+## Status (M1 + M2 + M3 + M4)
 
 M1: database schema, Alembic migrations, FastMCP server, scope resolution by
 `cwd`, tools `create_task`, `get_context`, `get_next_item`, `list_projects`.
@@ -16,6 +16,10 @@ Monte Carlo duration forecast, automatic project metrics, and MCP tools
 M3: idempotent backlog import from `*/ai/tasks/`, `*/docs/backlog/`,
 `*/backlog/` and `shared-infrastructure/tasks/BACKLOG.md`; SQLite online
 backup before import; MCP tools `import_backlog` and `backup_db`.
+
+M4: Cline task-history ingestion (model, tokens, cost, active time), manual
+`log_activity`, per-task and per-project aggregation with `task_metrics` and
+`metrics_report`; `Session.project_id` links metric-only sessions to projects.
 
 ## Requirements
 

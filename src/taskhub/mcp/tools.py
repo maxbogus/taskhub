@@ -17,6 +17,18 @@ from taskhub.services.backlog_importer import import_backlog as import_backlog_s
 from taskhub.services.backup import create_backup
 from taskhub.services.evaluation import evaluate_project as evaluate_project_service
 from taskhub.services.gates import blocking_items
+from taskhub.services.metric_ingest import (
+    ingest_cline_tasks,
+)
+from taskhub.services.metric_ingest import (
+    log_activity as log_activity_service,
+)
+from taskhub.services.metric_ingest import (
+    metrics_report as metrics_report_service,
+)
+from taskhub.services.metric_ingest import (
+    task_metrics as task_metrics_service,
+)
 from taskhub.services.scope import resolve_scope
 
 
@@ -288,3 +300,85 @@ async def backup_db(backup_dir: str | None = None) -> dict[str, Any]:
         backup_dir=Path(backup_dir).expanduser() if backup_dir else None
     )
     return {"status": "ok", "path": str(target)}
+
+
+async def ingest_metrics(
+    project_slug: str | None = None,
+    tasks_root: str | None = None,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Ingest Cline task history into sessions and metrics."""
+
+    async with session_scope() as session:
+        report = await ingest_cline_tasks(
+            session,
+            project_slug=project_slug,
+            tasks_root=Path(tasks_root).expanduser() if tasks_root else None,
+            limit=limit,
+            dry_run=dry_run,
+        )
+        payload = report.to_dict()
+        payload["dry_run"] = dry_run
+        return payload
+
+
+async def log_activity(
+    project_slug: str,
+    work_item_id: str | None = None,
+    agent_name: str = "human",
+    source: str = "manual",
+    external_id: str | None = None,
+    model: str | None = None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    duration_ms: int = 0,
+    active_ms: int = 0,
+    cost_usd: float | None = None,
+    success: bool = True,
+) -> dict[str, Any]:
+    """Record a manual session/metric (active collection)."""
+
+    async with session_scope() as session:
+        return await log_activity_service(
+            session,
+            project_slug=project_slug,
+            work_item_id=work_item_id,
+            agent_name=agent_name,
+            source=source,
+            external_id=external_id,
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            duration_ms=duration_ms,
+            active_ms=active_ms,
+            cost_usd=cost_usd,
+            success=success,
+        )
+
+
+async def task_metrics(item_id: str) -> dict[str, Any]:
+    """Return aggregated time/token/cost metrics for a task."""
+
+    async with session_scope() as session:
+        return await task_metrics_service(session, item_id)
+
+
+async def metrics_report(
+    project_slug: str | None = None,
+    group_by: str = "model",
+    since: str | None = None,
+) -> list[dict[str, Any]]:
+    """Aggregate metrics by model, agent, task or project."""
+
+    async with session_scope() as session:
+        return await metrics_report_service(
+            session,
+            project_slug=project_slug,
+            group_by=group_by,
+            since=since,
+        )

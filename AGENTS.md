@@ -27,7 +27,7 @@ src/taskhub/
   repo/           projects, work_items, notes, metrics, claims
   services/       scope (cwd → project), prioritizer (RICE), gates,
                   evm (Decimal), forecast (Monte Carlo), metrics, evaluation,
-                  backlog_importer, backup
+                  backlog_importer, backup, metric_ingest
   mcp/            server.py (FastMCP), tools.py, resources.py
   api/            FastAPI app (/healthz)
   cli.py          `taskhub init-db`, `taskhub list-projects`
@@ -58,5 +58,5 @@ uv run mypy
 
 ## Milestones
 
-M1 scaffold (done) → M2 evaluation core (done) → M3 import (done) → M4 metrics →
+M1 scaffold (done) → M2 evaluation core (done) → M3 import (done) → M4 metrics (done) →
 M5 gates → M6 notes/docs/templates → M7 claims → M8 dashboard → M9 deploy/backup.

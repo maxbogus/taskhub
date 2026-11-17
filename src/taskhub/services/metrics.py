@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from statistics import median
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from taskhub.models import Metric, WorkItem, WorkStatus
@@ -92,8 +92,13 @@ async def collect_project_metrics(
                 func.coalesce(func.sum(Metric.cost_usd), 0.0),
             )
             .join(WorkSession, Metric.session_id == WorkSession.id)
-            .join(WorkItem, WorkSession.work_item_id == WorkItem.id)
-            .where(WorkItem.project_id == project_id)
+            .outerjoin(WorkItem, WorkSession.work_item_id == WorkItem.id)
+            .where(
+                or_(
+                    WorkSession.project_id == project_id,
+                    WorkItem.project_id == project_id,
+                )
+            )
         )
     ).one()
 
