@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -12,6 +12,7 @@ from taskhub.models import Note, Project, WorkItem, WorkItemType
 from taskhub.repo.projects import get_project_by_slug
 from taskhub.repo.projects import list_projects as repo_list_projects
 from taskhub.repo.work_items import create_item, get_item, next_item
+from taskhub.services.evaluation import evaluate_project as evaluate_project_service
 from taskhub.services.gates import blocking_items
 from taskhub.services.scope import resolve_scope
 
@@ -200,27 +201,55 @@ async def list_projects() -> list[dict[str, Any]]:
 
 
 async def project_status(project_slug: str) -> dict[str, Any]:
-    """Compact machine-readable project snapshot (M1: counters only)."""
+    """Compact project snapshot: counters, EVM and a short forecast."""
 
     async with session_scope() as session:
         project = await get_project_by_slug(session, project_slug)
         if project is None:
             raise ValueError(f"project '{project_slug}' not found")
-        rows = (
-            await session.execute(
-                select(WorkItem.status, func.count())
-                .where(WorkItem.project_id == project.id)
-                .group_by(WorkItem.status)
-            )
-        ).all()
-        counts = {status.value: count for status, count in rows}
+        evaluation = await evaluate_project_service(
+            session, project, n_iterations=1000, random_seed=42
+        )
+        forecast = evaluation["forecast"]
         return {
             "project": project.slug,
-            "generated_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
-            "total_items": sum(counts.values()),
-            "by_status": counts,
-            "evaluation": {"status": "not_implemented", "milestone": "M2"},
+            "generated_at": evaluation["generated_at"],
+            "total_items": evaluation["items"]["total"],
+            "by_status": evaluation["items"]["by_status"],
+            "progress": evaluation["progress"],
+            "forecast": {
+                "status": forecast.get("status"),
+                "p50": forecast.get("p50"),
+                "p90": forecast.get("p90"),
+                "pct_completed": forecast.get("pct_completed"),
+            },
+            "health": evaluation["health"],
         }
+
+
+async def evaluate_project(
+    project_slug: str, n_iterations: int = 2000
+) -> dict[str, Any]:
+    """Full project evaluation: RICE, EVM, Monte Carlo and health."""
+
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        return await evaluate_project_service(
+            session, project, n_iterations=n_iterations
+        )
+
+
+async def forecast_project(project_slug: str) -> dict[str, Any]:
+    """Forecast-only view for agents that do not need the full evaluation."""
+
+    evaluation = await evaluate_project(project_slug, n_iterations=2000)
+    return {
+        "project": evaluation["project"],
+        "forecast": evaluation["forecast"],
+        "progress": evaluation["progress"],
+    }
 
 
 async def import_backlog(project_slug: str, path: str | None = None) -> dict[str, Any]:

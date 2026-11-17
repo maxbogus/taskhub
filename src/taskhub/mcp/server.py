@@ -15,6 +15,8 @@ mcp.tool()(tools.get_context)
 mcp.tool()(tools.get_next_item)
 mcp.tool()(tools.list_projects)
 mcp.tool()(tools.project_status)
+mcp.tool()(tools.evaluate_project)
+mcp.tool()(tools.forecast_project)
 mcp.tool()(tools.import_backlog)
 
 mcp.resource("task://{item_id}")(resources.task_doc)
