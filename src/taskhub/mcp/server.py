@@ -18,6 +18,7 @@ mcp.tool()(tools.project_status)
 mcp.tool()(tools.evaluate_project)
 mcp.tool()(tools.forecast_project)
 mcp.tool()(tools.import_backlog)
+mcp.tool()(tools.backup_db)
 
 mcp.resource("task://{item_id}")(resources.task_doc)
 mcp.resource("task://{item_id}/context")(resources.task_context)

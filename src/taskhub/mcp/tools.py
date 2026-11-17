@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
@@ -12,6 +13,8 @@ from taskhub.models import Note, Project, WorkItem, WorkItemType
 from taskhub.repo.projects import get_project_by_slug
 from taskhub.repo.projects import list_projects as repo_list_projects
 from taskhub.repo.work_items import create_item, get_item, next_item
+from taskhub.services.backlog_importer import import_backlog as import_backlog_service
+from taskhub.services.backup import create_backup
 from taskhub.services.evaluation import evaluate_project as evaluate_project_service
 from taskhub.services.gates import blocking_items
 from taskhub.services.scope import resolve_scope
@@ -252,12 +255,36 @@ async def forecast_project(project_slug: str) -> dict[str, Any]:
     }
 
 
-async def import_backlog(project_slug: str, path: str | None = None) -> dict[str, Any]:
-    """Placeholder for M3 backlog import."""
+async def import_backlog(
+    project_slug: str,
+    path: str | None = None,
+    dry_run: bool = False,
+    skip_backup: bool = False,
+) -> dict[str, Any]:
+    """Import existing file backlogs into a project (backup first)."""
 
-    return {
-        "status": "not_implemented",
-        "milestone": "M3",
-        "project": project_slug,
-        "path": path,
-    }
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        source = Path(path).expanduser() if path else None
+        report = await import_backlog_service(
+            session,
+            project,
+            source_path=source,
+            dry_run=dry_run,
+            skip_backup=skip_backup,
+        )
+        payload = report.to_dict()
+        payload["project"] = project.slug
+        payload["dry_run"] = dry_run
+        return payload
+
+
+async def backup_db(backup_dir: str | None = None) -> dict[str, Any]:
+    """Create an online SQLite backup and return its path."""
+
+    target = await create_backup(
+        backup_dir=Path(backup_dir).expanduser() if backup_dir else None
+    )
+    return {"status": "ok", "path": str(target)}
