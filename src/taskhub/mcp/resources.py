@@ -5,7 +5,10 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from taskhub.db import session_scope
-from taskhub.models import WorkItem, WorkStatus
+from taskhub.models import Agent, DocType, WorkItem, WorkStatus
+from taskhub.repo.claims import list_active_claims as repo_list_active_claims
+from taskhub.repo.documents import list_documents as repo_list_documents
+from taskhub.repo.notes import list_notes as repo_list_notes
 from taskhub.repo.projects import get_project_by_slug
 from taskhub.repo.work_items import get_item
 
@@ -117,4 +120,68 @@ async def project_backlog(slug: str) -> str:
                 estimate = f" ({item.estimate_hours:.1f}h)" if item.estimate_hours else ""
                 lines.append(f"- `{item.id}` {item.title} — p{item.priority}{estimate}")
             lines.append("")
+        return "\n".join(lines)
+
+
+async def project_specs(slug: str) -> str:
+    """List spec documents for a project."""
+
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, slug)
+        if project is None:
+            return f"# Not found\n\nProject `{slug}` does not exist."
+        documents = await repo_list_documents(
+            session, project.id, doc_type=DocType.spec
+        )
+        lines = [f"# Specs — {project.name}", ""]
+        if not documents:
+            lines.append("_No spec documents yet._")
+        for document in documents:
+            lines.append(
+                f"- `{document.slug}` — {document.title} (v{document.version})"
+            )
+        return "\n".join(lines)
+
+
+async def project_notes(slug: str) -> str:
+    """Recent notes for a project (most recent first)."""
+
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, slug)
+        if project is None:
+            return f"# Not found\n\nProject `{slug}` does not exist."
+        notes = await repo_list_notes(session, project.id, limit=50)
+        lines = [f"# Notes — {project.name}", ""]
+        if not notes:
+            lines.append("_No notes yet._")
+        for note in notes:
+            target = f" [`{note.work_item_id}`]" if note.work_item_id else ""
+            author = f" by {note.author}" if note.author else ""
+            lines.append(
+                f"- {note.created_at.isoformat()} "
+                f"({note.kind.value}){target}{author}: {note.content[:500]}"
+            )
+        return "\n".join(lines)
+
+
+async def project_claims(slug: str) -> str:
+    """Active claim leases for a project."""
+
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, slug)
+        if project is None:
+            return f"# Not found\n\nProject `{slug}` does not exist."
+        claims = await repo_list_active_claims(session, project_id=project.id)
+        lines = [f"# Active claims — {project.name}", ""]
+        if not claims:
+            lines.append("_No active claims._")
+        for claim in claims:
+            agent = await session.get(Agent, claim.agent_id)
+            agent_name = agent.name if agent else claim.agent_id
+            item = await get_item(session, claim.work_item_id)
+            title = item.title if item else claim.work_item_id
+            lines.append(
+                f"- `{claim.work_item_id}` {title} → {agent_name} "
+                f"(expires {claim.expires_at.isoformat()})"
+            )
         return "\n".join(lines)

@@ -24,13 +24,16 @@ src/taskhub/
   db.py           async engine, session_scope, init_db
   models.py       Project, Instance, WorkItem, Dependency, Note,
                   Document, TaskTemplate, Agent, Claim, Session, Metric
-  repo/           projects, work_items, notes, metrics, claims
+  repo/           projects, work_items, notes, documents, templates,
+                  claims, agents
   services/       scope (cwd → project), prioritizer (RICE), gates (roles,
-                  transitions, audit notes), evm (Decimal), forecast (Monte Carlo),
-                  metrics, evaluation, backlog_importer, backup, metric_ingest
+                  transitions, audit notes), claims (TTL leases), documents
+                  (versioned upsert), templates (import/apply), evm (Decimal),
+                  forecast (Monte Carlo), metrics, evaluation, backlog_importer,
+                  backup (retention), metric_ingest
   mcp/            server.py (FastMCP), tools.py, resources.py
-  api/            FastAPI app (/healthz)
-  cli.py          `taskhub init-db`, `taskhub list-projects`
+  api/            main.py (FastAPI REST + dashboard), static/index.html
+  cli.py          `taskhub init-db|list-projects|import-templates|backup`
 tests/            pytest (async, in-memory/file SQLite)
 alembic/          async migrations
 ```
@@ -40,8 +43,15 @@ alembic/          async migrations
 ```bash
 uv sync --extra dev
 uv run taskhub init-db
+uv run taskhub register-projects --root ~/Repositories   # discover projects
+uv run taskhub import-all --dry-run                      # preview collection
+uv run taskhub import-all                                # bulk backlog import
 uv run taskhub-mcp                       # stdio MCP
 TASKHUB_TRANSPORT=http uv run taskhub-mcp
+uv run taskhub-web                       # REST + dashboard (:8000)
+uv run taskhub import-templates
+uv run taskhub backup --keep 7
+docker compose up -d --build             # web + MCP
 uv run pytest
 uv run ruff check
 uv run mypy
@@ -59,4 +69,5 @@ uv run mypy
 ## Milestones
 
 M1 scaffold (done) → M2 evaluation core (done) → M3 import (done) → M4 metrics (done) →
-M5 gates (done) → M6 notes/docs/templates → M7 claims → M8 dashboard → M9 deploy/backup.
+M5 gates (done) → M6 notes/docs/templates (done) → M7 claims (done) →
+M8 dashboard (done) → M9 deploy/backup (done).

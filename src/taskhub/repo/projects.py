@@ -32,6 +32,40 @@ async def create_project(
     return project
 
 
+async def upsert_project(
+    session: AsyncSession,
+    *,
+    slug: str,
+    name: str,
+    root_path: str,
+    description: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> tuple[Project, bool]:
+    """Create a project or refresh its metadata; returns ``(project, created)``."""
+
+    stmt = select(Project).where(Project.slug == slug)
+    existing = (await session.execute(stmt)).scalar_one_or_none()
+    if existing is None:
+        project = Project(
+            slug=slug,
+            name=name,
+            root_path=root_path,
+            description=description,
+            config=config or {},
+        )
+        session.add(project)
+        await session.flush()
+        return project, True
+    existing.name = name
+    existing.root_path = root_path
+    if description is not None:
+        existing.description = description
+    if existing.archived_at is not None:
+        existing.archived_at = None
+    await session.flush()
+    return existing, False
+
+
 async def get_project_by_slug(session: AsyncSession, slug: str) -> Project | None:
     stmt = select(Project).where(
         Project.slug == slug, Project.archived_at.is_(None)

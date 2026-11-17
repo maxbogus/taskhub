@@ -8,13 +8,53 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from taskhub.config import get_settings
 from taskhub.db import session_scope
-from taskhub.models import Note, Project, WorkItem, WorkItemType
+from taskhub.models import (
+    Agent,
+    AgentRole,
+    Claim,
+    DocType,
+    Document,
+    Note,
+    NoteKind,
+    Project,
+    TaskTemplate,
+    WorkItem,
+    WorkItemType,
+    WorkStatus,
+)
+from taskhub.repo.agents import get_or_create_agent as repo_get_or_create_agent
+from taskhub.repo.claims import list_active_claims as repo_list_active_claims
+from taskhub.repo.documents import get_document as repo_get_document
+from taskhub.repo.documents import list_documents as repo_list_documents
+from taskhub.repo.notes import add_note as repo_add_note
+from taskhub.repo.notes import search_notes as repo_search_notes
 from taskhub.repo.projects import get_project_by_slug
 from taskhub.repo.projects import list_projects as repo_list_projects
-from taskhub.repo.work_items import create_item, get_item, next_item
+from taskhub.repo.templates import get_template as repo_get_template
+from taskhub.repo.templates import list_templates as repo_list_templates
+from taskhub.repo.work_items import (
+    create_item,
+    get_item,
+    next_item,
+)
+from taskhub.repo.work_items import (
+    list_items as repo_list_items,
+)
 from taskhub.services.backlog_importer import import_backlog as import_backlog_service
 from taskhub.services.backup import create_backup
+from taskhub.services.claims import (
+    ClaimError,
+)
+from taskhub.services.claims import (
+    acquire_claim as acquire_claim_service,
+)
+from taskhub.services.claims import (
+    release_claim as release_claim_service,
+)
+from taskhub.services.collect import import_all as import_all_service
+from taskhub.services.documents import upsert_document as upsert_document_service
 from taskhub.services.evaluation import evaluate_project as evaluate_project_service
 from taskhub.services.gates import (
     FlowError,
@@ -38,7 +78,17 @@ from taskhub.services.metric_ingest import (
 from taskhub.services.metric_ingest import (
     task_metrics as task_metrics_service,
 )
+from taskhub.services.projects import register_projects as register_projects_service
 from taskhub.services.scope import resolve_scope
+from taskhub.services.templates import (
+    DEFAULT_TEMPLATE_SOURCES,
+)
+from taskhub.services.templates import (
+    apply_template as apply_template_service,
+)
+from taskhub.services.templates import (
+    import_templates as import_templates_service,
+)
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -381,11 +431,14 @@ async def import_backlog(
         return payload
 
 
-async def backup_db(backup_dir: str | None = None) -> dict[str, Any]:
-    """Create an online SQLite backup and return its path."""
+async def backup_db(
+    backup_dir: str | None = None, keep: int | None = None
+) -> dict[str, Any]:
+    """Create an online SQLite backup and return its path (with retention)."""
 
     target = await create_backup(
-        backup_dir=Path(backup_dir).expanduser() if backup_dir else None
+        backup_dir=Path(backup_dir).expanduser() if backup_dir else None,
+        keep=keep,
     )
     return {"status": "ok", "path": str(target)}
 
@@ -470,3 +523,430 @@ async def metrics_report(
             group_by=group_by,
             since=since,
         )
+
+
+def _serialize_note(note: Note) -> dict[str, Any]:
+    """Serialise a note for MCP responses."""
+
+    return {
+        "id": note.id,
+        "project_id": note.project_id,
+        "work_item_id": note.work_item_id,
+        "kind": note.kind.value,
+        "content": note.content,
+        "author": note.author,
+        "meta": note.meta or {},
+        "created_at": note.created_at.isoformat(),
+    }
+
+
+async def add_note(
+    project_slug: str,
+    content: str,
+    work_item_id: str | None = None,
+    kind: str = "comment",
+    author: str = "mcp-client",
+) -> dict[str, Any]:
+    """Append a note to a project, optionally attached to a work item."""
+
+    try:
+        note_kind = NoteKind(kind)
+    except ValueError as exc:
+        raise ValueError(f"unknown note kind: {kind}") from exc
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        if work_item_id is not None:
+            item = await get_item(session, work_item_id)
+            if item is None:
+                raise ValueError(f"work item '{work_item_id}' not found")
+        note = await repo_add_note(
+            session,
+            project_id=project.id,
+            content=content,
+            work_item_id=work_item_id,
+            kind=note_kind,
+            author=author,
+        )
+        await session.commit()
+        return _serialize_note(note)
+
+
+async def search_notes(
+    project_slug: str,
+    query: str,
+    kind: str | None = None,
+    work_item_id: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Search note content by substring within a project."""
+
+    note_kind: NoteKind | None = None
+    if kind:
+        try:
+            note_kind = NoteKind(kind)
+        except ValueError as exc:
+            raise ValueError(f"unknown note kind: {kind}") from exc
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        notes = await repo_search_notes(
+            session,
+            project.id,
+            query,
+            work_item_id=work_item_id,
+            kind=note_kind,
+            limit=limit,
+        )
+        return [_serialize_note(note) for note in notes]
+
+
+def _doc_type(value: str) -> DocType:
+    try:
+        return DocType(value)
+    except ValueError as exc:
+        raise ValueError(f"unknown document type: {value}") from exc
+
+
+def _serialize_document(document: Document, *, include_content: bool) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": document.id,
+        "project_id": document.project_id,
+        "type": document.type.value,
+        "slug": document.slug,
+        "title": document.title,
+        "version": document.version,
+        "status": document.status,
+        "created_at": document.created_at.isoformat(),
+    }
+    if include_content:
+        data["content"] = document.content
+    return data
+
+
+async def upsert_document(
+    project_slug: str,
+    type: str,
+    slug: str,
+    title: str,
+    content: str,
+) -> dict[str, Any]:
+    """Create or version-bump a project document (spec/adr/runbook/readme/design)."""
+
+    doc_type = _doc_type(type)
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        result = await upsert_document_service(
+            session,
+            project_id=project.id,
+            doc_type=doc_type,
+            slug=slug,
+            title=title,
+            content=content,
+        )
+        await session.commit()
+        payload = _serialize_document(result.document, include_content=False)
+        payload["project"] = project.slug
+        payload["created"] = result.created
+        return payload
+
+
+async def get_document(project_slug: str, type: str, slug: str) -> dict[str, Any]:
+    """Return a single document with its full content."""
+
+    doc_type = _doc_type(type)
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        document = await repo_get_document(session, project.id, doc_type, slug)
+        if document is None:
+            raise ValueError(f"document '{type}/{slug}' not found")
+        return _serialize_document(document, include_content=True)
+
+
+async def list_documents(
+    project_slug: str, type: str | None = None
+) -> list[dict[str, Any]]:
+    """List active documents for a project."""
+
+    doc_type = _doc_type(type) if type else None
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        documents = await repo_list_documents(
+            session, project.id, doc_type=doc_type
+        )
+        return [
+            _serialize_document(document, include_content=False)
+            for document in documents
+        ]
+
+
+def _serialize_template(template: TaskTemplate) -> dict[str, Any]:
+    return {
+        "id": template.id,
+        "name": template.name,
+        "type": template.type,
+        "project_id": template.project_id,
+    }
+
+
+async def list_templates(project_slug: str | None = None) -> list[dict[str, Any]]:
+    """List global and project-scoped templates."""
+
+    async with session_scope() as session:
+        project_id: str | None = None
+        if project_slug:
+            project = await get_project_by_slug(session, project_slug)
+            if project is None:
+                raise ValueError(f"project '{project_slug}' not found")
+            project_id = project.id
+        templates = await repo_list_templates(session, project_id=project_id)
+        return [_serialize_template(template) for template in templates]
+
+
+async def apply_template(
+    project_slug: str,
+    template_name: str,
+    title: str | None = None,
+    variables: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Create a work item from a stored markdown template."""
+
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        template = await repo_get_template(
+            session, template_name, project_id=project.id
+        )
+        if template is None:
+            raise ValueError(f"template '{template_name}' not found")
+        item = await apply_template_service(
+            session,
+            project=project,
+            template=template,
+            title=title,
+            variables=variables,
+        )
+        await session.commit()
+        return serialize_item(item, compact=False)
+
+
+async def import_templates(
+    paths: list[str] | None = None,
+    project_slug: str | None = None,
+) -> dict[str, Any]:
+    """Import markdown templates from disk into the template store."""
+
+    async with session_scope() as session:
+        project_id: str | None = None
+        if project_slug:
+            project = await get_project_by_slug(session, project_slug)
+            if project is None:
+                raise ValueError(f"project '{project_slug}' not found")
+            project_id = project.id
+        roots = (
+            [Path(path).expanduser() for path in paths]
+            if paths
+            else list(DEFAULT_TEMPLATE_SOURCES)
+        )
+        report = await import_templates_service(
+            session, source_roots=roots, project_id=project_id
+        )
+        await session.commit()
+        return report.to_dict()
+
+
+def _serialize_agent(agent: Agent) -> dict[str, Any]:
+    return {
+        "id": agent.id,
+        "name": agent.name,
+        "kind": agent.kind,
+        "role": agent.role.value,
+        "meta": agent.meta or {},
+    }
+
+
+def _serialize_claim(
+    claim: Claim,
+    item: WorkItem | None = None,
+    agent: Agent | None = None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": claim.id,
+        "work_item_id": claim.work_item_id,
+        "agent_id": claim.agent_id,
+        "acquired_at": claim.acquired_at.isoformat(),
+        "expires_at": claim.expires_at.isoformat(),
+        "released_at": claim.released_at.isoformat() if claim.released_at else None,
+    }
+    if item is not None:
+        data["item"] = {
+            "id": item.id,
+            "title": item.title,
+            "status": item.status.value,
+            "project_id": item.project_id,
+        }
+    if agent is not None:
+        data["agent"] = _serialize_agent(agent)
+    return data
+
+
+async def register_agent(
+    name: str,
+    kind: str = "mcp-client",
+    role: str = "agent",
+) -> dict[str, Any]:
+    """Register (or return) an agent that can hold claim leases."""
+
+    try:
+        role_enum = AgentRole(role)
+    except ValueError as exc:
+        raise ValueError(f"unknown role: {role}") from exc
+    async with session_scope() as session:
+        agent = await repo_get_or_create_agent(
+            session, name=name, kind=kind, role=role_enum
+        )
+        await session.commit()
+        return _serialize_agent(agent)
+
+
+async def claim_task(
+    item_id: str, agent_name: str, ttl_minutes: int | None = None
+) -> dict[str, Any]:
+    """Acquire a TTL lease on a work item (renews if already held)."""
+
+    async with session_scope() as session:
+        try:
+            result = await acquire_claim_service(
+                session,
+                item_id=item_id,
+                agent_name=agent_name,
+                ttl_minutes=ttl_minutes,
+            )
+            await session.commit()
+        except ClaimError as exc:
+            raise ValueError(str(exc)) from exc
+        return {
+            **_serialize_claim(result.claim, result.item, result.agent),
+            "renewed": result.renewed,
+        }
+
+
+async def renew_claim(
+    item_id: str, agent_name: str, ttl_minutes: int | None = None
+) -> dict[str, Any]:
+    """Renew an existing claim lease held by the agent."""
+
+    return await claim_task(item_id, agent_name, ttl_minutes)
+
+
+async def release_task(item_id: str, agent_name: str) -> dict[str, Any]:
+    """Release the agent's active leases on a work item."""
+
+    async with session_scope() as session:
+        released = await release_claim_service(
+            session, item_id=item_id, agent_name=agent_name
+        )
+        await session.commit()
+        return {"item_id": item_id, "agent": agent_name, "released": released}
+
+
+async def list_claims(project_slug: str | None = None) -> list[dict[str, Any]]:
+    """List active (unexpired, unreleased) claim leases."""
+
+    async with session_scope() as session:
+        project_id: str | None = None
+        if project_slug:
+            project = await get_project_by_slug(session, project_slug)
+            if project is None:
+                raise ValueError(f"project '{project_slug}' not found")
+            project_id = project.id
+        claims = await repo_list_active_claims(session, project_id=project_id)
+        result: list[dict[str, Any]] = []
+        for claim in claims:
+            item = await get_item(session, claim.work_item_id)
+            agent = await session.get(Agent, claim.agent_id)
+            result.append(_serialize_claim(claim, item, agent))
+        return result
+
+
+async def list_tasks(
+    project_slug: str,
+    status: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List work items for a project, optionally filtered by status."""
+
+    status_enum: WorkStatus | None = None
+    if status:
+        try:
+            status_enum = WorkStatus(status)
+        except ValueError as exc:
+            raise ValueError(f"unknown status: {status}") from exc
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        items = await repo_list_items(
+            session, project.id, status=status_enum, limit=limit
+        )
+        return [serialize_item(item) for item in items]
+
+
+async def register_projects(
+    root: str | None = None,
+    max_depth: int = 2,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Discover project directories with task sources and register them."""
+
+    async with session_scope() as session:
+        base = Path(root).expanduser() if root else get_settings().repositories_root
+        try:
+            report = await register_projects_service(
+                session, base, max_depth=max_depth, dry_run=dry_run
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        payload = report.to_dict()
+        payload["root"] = str(base)
+        payload["dry_run"] = dry_run
+        return payload
+
+
+async def import_all_backlogs(
+    dry_run: bool = False,
+    skip_backup: bool = False,
+    project_slugs: list[str] | None = None,
+) -> dict[str, Any]:
+    """Import backlogs for every registered project (or a subset)."""
+
+    async with session_scope() as session:
+        projects = await repo_list_projects(session)
+        if project_slugs:
+            wanted = set(project_slugs)
+            known = {project.slug for project in projects}
+            missing = wanted - known
+            if missing:
+                raise ValueError(
+                    f"projects not found: {', '.join(sorted(missing))}"
+                )
+            projects = [project for project in projects if project.slug in wanted]
+        report = await import_all_service(
+            session,
+            projects,
+            dry_run=dry_run,
+            skip_backup=skip_backup,
+        )
+        payload = report.to_dict()
+        payload["dry_run"] = dry_run
+        payload["project_count"] = len(projects)
+        return payload

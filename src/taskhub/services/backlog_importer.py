@@ -51,14 +51,24 @@ PRIORITY_BY_LABEL = {
     "P0": 0,
     "CRITICAL": 0,
     "CRIT": 0,
+    "КРИТИЧЕСКИЙ": 0,
+    "КРИТ": 0,
     "P1": 1,
     "HIGH": 1,
+    "ВЫСОКИЙ": 1,
+    "ВЫСШИЙ": 1,
     "P2": 2,
     "MEDIUM": 2,
     "MED": 2,
+    "СРЕДНИЙ": 2,
     "P3": 3,
     "LOW": 3,
+    "НИЗКИЙ": 3,
     "P4": 4,
+    "📊": 4,
+    "🥇": 1,
+    "🥈": 2,
+    "🥉": 3,
 }
 
 
@@ -122,8 +132,13 @@ def _priority_from(value: str | int | None, default: int = 3) -> int:
         return PRIORITY_BY_LABEL[text]
     if text.isdigit():
         return max(0, min(4, int(text)))
-    match = re.search(r"P([0-4])", text)
-    return int(match.group(1)) if match else default
+    match = re.search(r"P([0-4])", text, re.IGNORECASE)
+    if match and match.group(1).isdigit():
+        return int(match.group(1))
+    for label, score in PRIORITY_BY_LABEL.items():
+        if label in text:
+            return score
+    return default
 
 
 def _status_from(
@@ -132,22 +147,32 @@ def _status_from(
     text = (value or "").strip().lower()
     if not text:
         return default
-    if "progress" in text or "🔄" in text or text in (
-        "active",
-        "in-progress",
-        "in_progress",
+    if (
+        "progress" in text
+        or "🔄" in text
+        or "в процессе" in text
+        or "в работе" in text
+        or text in ("active", "in-progress", "in_progress")
     ):
         return WorkStatus.in_progress
-    if "done" in text or "заверш" in text or "✅" in text:
+    if (
+        "done" in text
+        or "заверш" in text
+        or "выполн" in text
+        or "готово" in text
+        or "✅" in text
+    ):
         return WorkStatus.done
     if "archive" in text or "архив" in text:
         return WorkStatus.archived
-    if "block" in text:
+    if "block" in text or "блок" in text:
         return WorkStatus.blocked
     if "review" in text or "ревью" in text:
         return WorkStatus.review
-    if "ready" in text:
+    if "ready" in text or "готов" in text:
         return WorkStatus.ready
+    if "cancel" in text or "отмен" in text:
+        return WorkStatus.cancelled
     return WorkStatus.backlog
 
 
@@ -159,20 +184,53 @@ def _normalize_hours(value: Any, unit: str | None = None) -> float | None:
     except (TypeError, ValueError):
         return None
     unit_text = (unit or "").lower()
-    if "story" in unit_text or unit_text.strip() in ("sp", "points"):
+    if (
+        any(token in unit_text for token in ("story", "points", "стори"))
+        or unit_text.strip() in ("sp", "сп")
+    ):
+        return round(numeric * 8.0, 4)
+    if any(token in unit_text for token in ("day", "дн", "день")):
         return round(numeric * 8.0, 4)
     return round(numeric, 4)
 
 
 def _section(text: str, heading: str) -> str | None:
-    pattern = rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s+|\Z)"
-    match = re.search(pattern, text, re.MULTILINE | re.DOTALL)
-    return match.group(1).strip() if match else None
+    """Return the longest section whose heading contains ``heading``."""
+
+    pattern = (
+        rf"^#{{2,4}}\s+[^\n]*{re.escape(heading)}[^\n]*\n(.*?)"
+        rf"(?=^#{{2,4}}\s+|\Z)"
+    )
+    best: str | None = None
+    for match in re.finditer(
+        pattern, text, re.MULTILINE | re.DOTALL | re.IGNORECASE
+    ):
+        content = match.group(1).strip()
+        if content and (best is None or len(content) > len(best)):
+            best = content
+    return best
+
+
+FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "status": ("Status", "Статус"),
+    "priority": ("Priority", "Приоритет"),
+    "depends on": ("Depends on", "Depends", "Зависит от", "Зависимости"),
+}
 
 
 def _bold_field(text: str, name: str) -> str | None:
-    match = re.search(rf"\*\*{re.escape(name)}:\*\*\s*(.+)", text)
-    return match.group(1).strip() if match else None
+    """Read a bold markdown field, tolerating RU labels and colon placement."""
+
+    aliases = FIELD_ALIASES.get(name.lower(), (name,))
+    for alias in aliases:
+        for pattern in (
+            rf"\*\*{re.escape(alias)}\s*[:\uff1a]\s*\*\*\s*(.+)",
+            rf"\*\*{re.escape(alias)}\*\*\s*[:\uff1a]\s*(.+)",
+        ):
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+    return None
 
 
 def _rice_from_mapping(data: dict[str, Any]) -> dict[str, float] | None:
@@ -195,21 +253,29 @@ def _rice_from_bullets(section: str | None) -> dict[str, float] | None:
         ("R", "Reach"),
         ("I", "Impact"),
         ("C", "Confidence"),
-        ("score", "Score"),
     )
     for key, label in patterns:
         match = re.search(
-            rf"{label}\s*[:=]\s*\**\s*([0-9]+(?:\.[0-9]+)?%?)",
+            rf"{label}\s*\**\s*[:=]\s*\**\s*([0-9]+(?:\.[0-9]+)?\s*%?)",
             section,
             re.IGNORECASE,
         )
         if not match:
             continue
-        raw = match.group(1)
+        raw = match.group(1).replace(" ", "")
         value = float(raw.replace("%", ""))
         if key == "C" and raw.endswith("%"):
             value /= 100
         result[key] = value
+    for score_pattern in (
+        r"Score\s*\**\s*[:=][^\n]*?=\s*\**\s*([0-9]+(?:\.[0-9]+)?)",
+        r"Score\s*\**\s*[:=][^\n]*?\*\*\s*([0-9]+(?:\.[0-9]+)?)\s*\*\*",
+        r"Score\s*\**\s*[:=]\s*\**\s*([0-9]+(?:\.[0-9]+)?)",
+    ):
+        match = re.search(score_pattern, section, re.IGNORECASE)
+        if match:
+            result["score"] = float(match.group(1))
+            break
     return result or None
 
 
@@ -217,7 +283,8 @@ def _effort_from_section(section: str | None) -> float | None:
     if not section:
         return None
     match = re.search(
-        r"Effort\s*[:=]\s*\**\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z ]*)",
+        r"Effort\s*\**\s*[:=]\s*\**\s*([0-9]+(?:\.[0-9]+)?)\s*"
+        r"([A-Za-z\u0410-\u044f ]*)",
         section,
         re.IGNORECASE,
     )
@@ -275,7 +342,10 @@ def parse_ai_task_file(path: Path) -> ParsedTask | None:
     title_line = heading.group(1).strip()
     external_id = path.stem
     title = title_line
-    match = re.match(r"([A-Z][A-Z0-9_.-]*?):\s*(.+)", title_line)
+    match = re.search(
+        r"(?<![A-Za-z0-9])([A-Z][A-Z0-9_.-]*?)\s*[:\uff1a]\s*(.+)",
+        title_line,
+    )
     if match:
         external_id = match.group(1)
         title = match.group(2).strip()
@@ -287,7 +357,11 @@ def parse_ai_task_file(path: Path) -> ParsedTask | None:
         source_path=path,
         status=_status_from(_bold_field(text, "Status"), _status_from_path(path)),
         priority=_priority_from(_bold_field(text, "Priority")),
-        description=_section(text, "Problem") or text.strip()[:20000],
+        description=(
+            _section(text, "Problem")
+            or _section(text, "Проблема")
+            or text.strip()[:20000]
+        ),
         estimate_hours=_effort_from_section(rice_section),
         rice=_rice_from_bullets(rice_section),
         depends_on=_split_depends(_bold_field(text, "Depends on")),
@@ -295,6 +369,8 @@ def parse_ai_task_file(path: Path) -> ParsedTask | None:
         acceptance_criteria=(
             _section(text, "Acceptance Criteria")
             or _section(text, "Критерии завершения")
+            or _section(text, "Критерии приёмки")
+            or _section(text, "Критерии приемки")
         ),
         meta={"format": "ai_tasks"},
     )
@@ -395,8 +471,42 @@ def parse_path(path: Path) -> list[ParsedTask]:
     return [task] if task is not None else []
 
 
+SOURCE_DIRS: tuple[tuple[str, ...], ...] = (
+    ("ai", "tasks"),
+    ("ai", "backlog"),
+    ("docs", "backlog"),
+    ("docs", "tasks"),
+    ("backlog",),
+    ("tasks",),
+)
+
+IGNORED_SOURCE_SEGMENTS = {
+    "templates",
+    "node_modules",
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+}
+
+
+def _iter_markdown_files(base: Path) -> list[Path]:
+    """Recursively collect markdown files, skipping template/tooling folders."""
+
+    files: list[Path] = []
+    for path in sorted(base.rglob("*.md")):
+        try:
+            parts = path.relative_to(base).parts[:-1]
+        except ValueError:
+            parts = path.parts[:-1]
+        if any(part.lower() in IGNORED_SOURCE_SEGMENTS for part in parts):
+            continue
+        files.append(path)
+    return files
+
+
 def discover_sources(root: Path) -> list[Path]:
-    """Discover backlog files under a project root."""
+    """Discover backlog files under a project root (recursive, deduplicated)."""
 
     seen: set[Path] = set()
     paths: list[Path] = []
@@ -407,24 +517,11 @@ def discover_sources(root: Path) -> list[Path]:
             seen.add(resolved)
             paths.append(path)
 
-    tasks_dir = root / "ai" / "tasks"
-    if tasks_dir.is_dir():
-        for folder in STATUS_BY_DIR:
-            base = tasks_dir / folder
-            if base.is_dir():
-                for path in sorted(base.glob("*.md")):
-                    add(path)
-        for path in sorted(tasks_dir.glob("*.md")):
-            add(path)
-
-    for backlog_dir in (root / "docs" / "backlog", root / "backlog", root / "tasks"):
-        if backlog_dir.is_dir():
-            for path in sorted(backlog_dir.glob("*.md")):
+    for marker in SOURCE_DIRS:
+        base = root.joinpath(*marker)
+        if base.is_dir():
+            for path in _iter_markdown_files(base):
                 add(path)
-            archive = backlog_dir / "archive"
-            if archive.is_dir():
-                for path in sorted(archive.glob("*.md")):
-                    add(path)
 
     return paths
 

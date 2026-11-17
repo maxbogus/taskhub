@@ -4,7 +4,7 @@ Local MCP-native single source of truth for tasks, projects, notes and metrics.
 Replaces scattered file backlogs (`*/ai/tasks/`, `*/docs/backlog/`,
 `shared-infrastructure/tasks/`) with one database and one workflow.
 
-## Status (M1 + M2 + M3 + M4)
+## Status (M1–M9)
 
 M1: database schema, Alembic migrations, FastMCP server, scope resolution by
 `cwd`, tools `create_task`, `get_context`, `get_next_item`, `list_projects`.
@@ -24,6 +24,23 @@ M4: Cline task-history ingestion (model, tokens, cost, active time), manual
 M5: unified role-aware workflow with gates — `change_status`, `get_workflow`,
 `update_task`; audit notes on every transition; project-level flow overrides.
 
+M6: notes, documents and templates — `add_note`, `search_notes`,
+`upsert_document`/`get_document`/`list_documents`, `import_templates`,
+`apply_template`; MCP resources `project://{slug}/specs` and
+`project://{slug}/notes`; markdown template import with YAML frontmatter mapped
+to RICE, estimates and acceptance criteria.
+
+M7: TTL claim leases — `register_agent`, `claim_task`/`renew_claim`/`release_task`,
+`list_claims`, `list_tasks`; resource `project://{slug}/claims`; expired leases
+never block work.
+
+M8: FastAPI REST API (`/api/projects`, `/api/projects/{slug}/status|items|documents|claims`,
+`/api/tasks/{id}`, `/api/metrics`) and a single-page dashboard served at `/`;
+`taskhub-web` entry point.
+
+M9: Docker deployment (multi-stage, non-root, healthchecks) and backup retention —
+`taskhub backup --keep N`, `backup_keep` setting, `backup_db(keep=...)`.
+
 ## Requirements
 
 - Python 3.12
@@ -36,6 +53,27 @@ uv sync --extra dev
 uv run taskhub init-db          # create tables without Alembic (quick start)
 uv run alembic upgrade head     # or apply migrations (recommended)
 ```
+
+## Collect tasks from all projects
+
+```bash
+# 1. register every directory under ~/Repositories that has task sources
+uv run taskhub register-projects --root ~/Repositories --max-depth 2
+
+# 2. preview the import (no writes)
+uv run taskhub import-all --dry-run
+
+# 3. import for real (one SQLite backup is taken first)
+uv run taskhub import-all
+
+# re-import a subset
+uv run taskhub import-all --project ai-gateway --project books
+```
+
+The importer recursively scans `ai/tasks/**`, `ai/backlog/**`, `docs/backlog/**`,
+`docs/tasks/**`, `backlog/**` and `tasks/**` (template folders excluded) and
+upserts by `(project, external_ref)`, so re-runs update instead of duplicating.
+MCP exposes the same flow via `register_projects` and `import_all_backlogs`.
 
 ## Run MCP server (stdio)
 
@@ -67,15 +105,34 @@ TASKHUB_TRANSPORT=http TASKHUB_PORT=7801 uv run taskhub-mcp
 }
 ```
 
+## Web API and dashboard
+
+```bash
+uv run taskhub-web          # FastAPI + dashboard on http://127.0.0.1:8000
+```
+
+| Endpoint | Description |
+|---|---|
+| `GET /healthz` | Liveness probe |
+| `GET /api/projects` | Projects with per-status counters |
+| `GET /api/projects/{slug}/status` | EVM, forecast and health |
+| `GET /api/projects/{slug}/items?status=` | Work items (optionally filtered) |
+| `GET /api/projects/{slug}/documents?type=` | Documents (optionally filtered) |
+| `GET /api/projects/{slug}/claims` | Active claim leases |
+| `GET /api/claims` | Active claims across projects |
+| `GET /api/tasks/{id}` | Task context |
+| `GET /api/metrics?project=&group_by=` | Aggregated metrics |
+| `GET /` | Single-page dashboard |
+
 ## Architecture
 
 ```
 taskhub-mcp   — MCP server (stdio / streamable HTTP :7801)
-taskhub-web   — FastAPI REST + dashboard (M8)
-taskhub-worker— metric ingest, backup, status snapshots (M4/M9)
+taskhub-web   — FastAPI REST + dashboard (:8000)
+taskhub       — CLI: init-db, list-projects, import-templates, backup
 ```
 
-Three processes over one database. Layout:
+Processes over one database. Layout:
 
 ```
 src/taskhub/
@@ -83,9 +140,11 @@ src/taskhub/
   db.py          async engine / session
   models.py      SQLAlchemy 2.0 schema
   repo/           thin repositories over AsyncSession
-  services/       scope, prioritizer, gates
+  services/       scope, prioritizer, gates, claims, documents, templates,
+                  evm, forecast, metrics, evaluation, backlog_importer,
+                  backup, metric_ingest
   mcp/            FastMCP server, tools, resources
-  api/            FastAPI REST
+  api/            FastAPI REST + dashboard (static/index.html)
   cli.py          small human CLI
 ```
 
@@ -93,6 +152,28 @@ src/taskhub/
 
 SQLite by default (`sqlite+aiosqlite:///./taskhub.db`), PostgreSQL via
 `TASKHUB_DB_URL`. Migrations are managed by Alembic.
+
+## Deployment (Docker)
+
+```bash
+docker compose up -d --build
+# dashboard: http://127.0.0.1:8000
+# MCP (streamable HTTP): http://127.0.0.1:7801
+```
+
+Two services share one SQLite database on the `taskhub-data` volume; backups go
+to the `taskhub-backups` volume. The image is multi-stage and runs as a non-root
+`app` user. For production, point `TASKHUB_DB_URL` at PostgreSQL (asyncpg is
+already a dependency).
+
+## Backup
+
+```bash
+uv run taskhub backup --keep 7      # online VACUUM INTO backup + retention
+```
+
+`backup_keep` (default 7) controls retention; `0` keeps every backup. The MCP
+tool `backup_db(keep=...)` exposes the same behaviour.
 
 ## Testing
 
@@ -109,8 +190,7 @@ uv run mypy
 - JSON uses `JSONB` on PostgreSQL and `JSON` elsewhere.
 - `WorkItem.due_at` is used for EVM planned value and lead time.
 
-## Next milestones
+## Milestones
 
-M2 evaluation core (RICE + EVM + Monte Carlo), M3 backlog import,
-M4 metric ingest, M5 gates/flow, M6 notes/docs/templates, M7 claims,
-M8 dashboard, M9 deployment/backup.
+All planned milestones M1–M9 are complete. Suggested follow-ups: SQLite FTS5 for
+note search, partitioned metrics for PostgreSQL, and auth in front of the dashboard.

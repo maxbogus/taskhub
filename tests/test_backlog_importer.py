@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from taskhub.models import Dependency, WorkItem, WorkStatus
 from taskhub.repo.projects import create_project
-from taskhub.services.backlog_importer import import_backlog
+from taskhub.services.backlog_importer import import_backlog, parse_ai_task_file
 
 AI_TASK = """# TASK-MEDIUM-002: Add Docker non-root user
 
@@ -161,3 +161,39 @@ async def test_dry_run_does_not_write(session: AsyncSession, tmp_path: Path) -> 
     assert report.created == 1
     items = list((await session.execute(select(WorkItem))).scalars().all())
     assert items == []
+
+
+EMOJI_TASK = """# 🎯 RAG-ARCH-1: Интеграция RAG
+
+**Статус:** \u0412 процессе
+**Приоритет:** Высокий (RICE 0.92)
+
+## 📊 RICE оценка
+
+- **Reach**: 3 (агент)
+- **Impact**: 5
+- **Confidence**: 0.8 (80%)
+- **Effort**: 13 story points
+- **RICE Score**: (3 \u00d7 5 \u00d7 0.8) / 13 = **0.92**
+
+## Критерии завершения
+
+- [ ] RAG работает
+"""
+
+
+def test_parse_ai_task_file_handles_ru_and_emoji(tmp_path: Path) -> None:
+    path = tmp_path / "rag.md"
+    path.write_text(EMOJI_TASK, encoding="utf-8")
+
+    task = parse_ai_task_file(path)
+
+    assert task is not None
+    assert task.external_id == "RAG-ARCH-1"
+    assert task.title == "Интеграция RAG"
+    assert task.status is WorkStatus.in_progress
+    assert task.priority == 1
+    assert task.estimate_hours == 104.0
+    assert task.rice == {"R": 3.0, "I": 5.0, "C": 0.8, "score": 0.92}
+    assert task.acceptance_criteria is not None
+    assert "RAG работает" in task.acceptance_criteria
