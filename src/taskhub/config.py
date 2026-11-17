@@ -21,8 +21,11 @@ class Settings(BaseSettings):
     transport: str = "stdio"
     host: str = "127.0.0.1"
     port: int = 7801
+    web_port: int = 8000
     token: str | None = None
     backup_dir: Path = Path("./backups")
+    backup_keep: int = 7
+    repositories_root: Path = Path.home() / "Repositories"
     metrics_sources: str = "cline"
     log_level: str = "INFO"
     default_claim_ttl_minutes: int = 30

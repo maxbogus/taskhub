@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TaskHub</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:#0d1117; color:#c9d1d9; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid #21262d; }
+  h1 { font-size:16px; margin:0; }
+  main { display:grid; grid-template-columns:280px 1fr; min-height:calc(100vh - 49px); }
+  aside { border-right:1px solid #21262d; padding:12px; overflow:auto; }
+  section { padding:16px 20px; overflow:auto; }
+  button { background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:4px 10px; cursor:pointer; font:inherit; }
+  button:hover { background:#30363d; }
+  select, input { background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:4px 8px; font:inherit; }
+  .proj { padding:8px; border-radius:6px; cursor:pointer; }
+  .proj:hover, .proj.active { background:#161b22; }
+  .muted { color:#8b949e; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; background:#161b22; border:1px solid #30363d; margin:2px; font-size:12px; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid #21262d; }
+  th { color:#8b949e; font-weight:600; }
+  h2 { font-size:14px; margin:20px 0 8px; color:#58a6ff; }
+  code { color:#79c0ff; }
+  .bad { color:#f85149; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TaskHub</h1>
+  <span class="muted" id="status">loading…</span>
+  <button onclick="refresh()">Refresh</button>
+</header>
+<main>
+  <aside>
+  <input id="filter" placeholder="filter projects…" oninput="renderProjects(this.value)" style="width:100%;box-sizing:border-box;margin-bottom:8px" />
+  <div id="projects"></div>
+</aside>
+  <section id="detail"><p class="muted">Select a project.</p></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const STATUSES = ["", "backlog", "ready", "in_progress", "blocked", "review", "done", "cancelled", "archived"];
+let allProjects = [];
+let current = null;
+let currentStatus = "";
+
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+function renderProjects(filter = "") {
+  const needle = filter.trim().toLowerCase();
+  const visible = allProjects.filter(p =>
+    !needle || p.slug.toLowerCase().includes(needle) || (p.name || "").toLowerCase().includes(needle));
+  $("projects").innerHTML = visible.map(p =>
+    `<div class="proj ${p.slug === current ? "active" : ""}" onclick="selectProject('${p.slug}')">
+       <div><code>${p.slug}</code></div>
+       <div class="muted">${Object.entries(p.by_status).map(([k, v]) => `${k}:${v}`).join(" ")}</div>
+     </div>`).join("") || '<p class="muted">No projects.</p>';
+}
+
+async function refresh() {
+  try {
+    allProjects = await api("/api/projects");
+    $("status").textContent = `${allProjects.length} projects`;
+    renderProjects($("filter") ? $("filter").value : "");
+    if (current) await loadDetail();
+  } catch (e) { $("status").textContent = "error: " + e.message; }
+}
+
+function setStatus(value) { currentStatus = value; loadDetail(); }
+
+async function selectProject(slug) {
+  current = slug;
+  renderProjects($("filter") ? $("filter").value : "");
+  await loadDetail();
+}
+
+async function loadDetail() {
+  if (!current) return;
+  const slug = current;
+  try {
+    const page = currentStatus
+      ? `?status=${encodeURIComponent(currentStatus)}&limit=200`
+      : "?limit=200";
+    const [status, items, claims, docs] = await Promise.all([
+      api(`/api/projects/${slug}/status`),
+      api(`/api/projects/${slug}/items${page}`),
+      api(`/api/projects/${slug}/claims`),
+      api(`/api/projects/${slug}/documents`),
+    ]);
+    const f = status.forecast || {};
+    const p = status.progress || {};
+    const options = STATUSES.map(
+      s => `<option value="${s}" ${s === currentStatus ? "selected" : ""}>${s || "all statuses"}</option>`
+    ).join("");
+    $("detail").innerHTML = `
+      <h2>${slug}</h2>
+      <div>${Object.entries(status.by_status || {}).map(([k, v]) => `<span class="pill">${k} ${v}</span>`).join("")}</div>
+      <h2>Progress</h2>
+      <div class="muted">CPI ${p.cpi ?? "—"} · SPI ${p.spi ?? "—"} · EAC ${p.eac_hours ?? "—"}h · forecast p50 ${f.p50 ?? "—"} / p90 ${f.p90 ?? "—"} days</div>
+      <h2>Items (${items.length})</h2>
+      <div style="margin-bottom:8px"><select onchange="setStatus(this.value)">${options}</select></div>
+      <table><tr><th>status</th><th>p</th><th>title</th><th>estimate</th></tr>
+      ${items.map(i => `<tr><td>${i.status}</td><td>${i.priority}</td><td>${i.title}</td><td>${i.estimate_hours ?? "—"}</td></tr>`).join("")}</table>
+      <h2>Active claims (${claims.length})</h2>
+      <div>${claims.map(c => `<span class="pill">${(c.agent || {}).name || c.agent_id} → ${(c.item || {}).title || c.work_item_id}</span>`).join("") || '<span class="muted">none</span>'}</div>
+      <h2>Documents (${docs.length})</h2>
+      <div>${docs.map(d => `<span class="pill">${d.type}/${d.slug} v${d.version}</span>`).join("") || '<span class="muted">none</span>'}</div>
+    `;
+  } catch (e) { $("detail").innerHTML = `<p class="bad">${e.message}</p>`; }
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

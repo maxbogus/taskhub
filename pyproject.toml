@@ -36,6 +36,7 @@ dev = [
 
 [project.scripts]
 taskhub-mcp = "taskhub.mcp.server:run"
+taskhub-web = "taskhub.api.main:run"
 taskhub = "taskhub.cli:main"
 
 [build-system]
