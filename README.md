@@ -80,8 +80,8 @@ uv run taskhub import-all
 uv run taskhub import-all --project ai-gateway --project books
 ```
 
-> Готовый промпт для агента, который переносит задачи из репозитория в трекер:
-> [`docs/PROMPT-migrate-tasks.md`](docs/PROMPT-migrate-tasks.md).
+> Migration is exposed through the TaskHub MCP server (`register_projects`,
+> `import_all_backlogs`, `import_notes`); the `taskhub-migrate` skill drives it.
 
 Sources are declared in `src/taskhub/sources.yaml` (directories, explicit files,
 glob patterns and a parser per source), not in Python code. The defaults cover
