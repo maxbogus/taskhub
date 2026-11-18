@@ -256,3 +256,13 @@ def test_discover_sources_includes_readme_analysis_and_backlog(tmp_path: Path) -
     names = {path.name for path in discover_sources(tmp_path)}
 
     assert {"README.md", "BACKLOG.md", "roadmap.md", "TASKS.md"} <= names
+
+
+def test_status_completed_maps_to_done() -> None:
+    """COMPLETED (books ticket status) maps to WorkStatus.done (regression)."""
+    from taskhub.services.backlog_importer import _status_from
+
+    assert _status_from("COMPLETED") is WorkStatus.done
+    assert _status_from("completed") is WorkStatus.done
+    assert _status_from("COMPLETE") is WorkStatus.done
+    assert _status_from("DONE") is WorkStatus.done

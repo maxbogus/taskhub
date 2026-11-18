@@ -154,7 +154,15 @@ def _status_from(value: str | None, default: WorkStatus = WorkStatus.backlog) ->
         or text in ("active", "in-progress", "in_progress")
     ):
         return WorkStatus.in_progress
-    if "done" in text or "заверш" in text or "выполн" in text or "готово" in text or "✅" in text:
+    if (
+        "done" in text
+        or "completed" in text
+        or "complete" == text
+        or "заверш" in text
+        or "выполн" in text
+        or "готово" in text
+        or "✅" in text
+    ):
         return WorkStatus.done
     if "archive" in text or "архив" in text:
         return WorkStatus.archived
