@@ -1,0 +1,16 @@
+# Gitleaks configuration for TaskHub (https://github.com/gitleaks/gitleaks).
+# Built-in rules are used; add entries to [allowlist] only for verified false
+# positives. Never allowlist a real secret.
+title = "TaskHub gitleaks config"
+
+[allowlist]
+description = "Generated lockfile (no secrets by nature)"
+paths = [
+    '''uv[.]lock''',
+    '''(^|/)[.]venv/''',
+    '''(^|/)[.]git/''',
+    '''(^|/)[.]mypy_cache/''',
+    '''(^|/)[.]pytest_cache/''',
+    '''(^|/)[.]ruff_cache/''',
+    '''(^|/)node_modules/''',
+]

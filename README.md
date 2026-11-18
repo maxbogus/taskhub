@@ -321,10 +321,17 @@ tool `backup_db(keep=...)` exposes the same behaviour.
 ## Testing
 
 ```bash
-uv run pytest
-uv run ruff check
-uv run mypy
+make test          # pytest
+make lint          # ruff check
+make type-check    # mypy
+make check         # lint + type-check + test
+make secrets       # gitleaks: scan git history
+make secrets-scan  # gitleaks: scan the working tree
 ```
+
+Run `make help` (or just `make`) for all targets — install, init-db, test, lint,
+format, type-check, check, secrets, register-projects, import, import-notes,
+export, backup, mcp, web, docker-up/down.
 
 ## Design notes
 
