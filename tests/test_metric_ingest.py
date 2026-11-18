@@ -11,7 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from taskhub.models import Metric, SessionSource
 from taskhub.models import Session as WorkSession
 from taskhub.repo.projects import create_project
-from taskhub.services.metric_ingest import analyze_task, ingest_cline_tasks
+from taskhub.services.metric_ingest import _home_aliases, analyze_task, ingest_cline_tasks
+
+
+def test_home_aliases_follow_environment(monkeypatch) -> None:
+    monkeypatch.setenv("CLINE_HOME_ALIASES", "custom-user, another-user")
+
+    aliases = _home_aliases()
+
+    assert Path.home().name in aliases
+    assert {"custom-user", "another-user"} <= aliases
 
 
 def _write_task(

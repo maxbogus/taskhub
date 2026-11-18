@@ -60,8 +60,9 @@ writing posts (`taskhub export`, MCP `export_notes`). Per-folder source map in
 
 ```bash
 uv sync --extra dev
-uv run taskhub init-db          # create tables at ~/.taskhub/taskhub.db (quick start)
+uv run taskhub init-db          # create tables under $TASKHUB_HOME (default ~/.taskhub)
 uv run alembic upgrade head     # or apply migrations (recommended)
+uv run taskhub mcp-config       # write a machine-local .mcp.json for MCP clients
 ```
 
 No environment file is required — every setting has a working default (see below).
@@ -73,8 +74,9 @@ Zero-config: the app runs with these defaults. Override any setting with the
 
 | Setting | Env var | Default |
 |---|---|---|
-| Database | `TASKHUB_DB_URL` | `sqlite+aiosqlite:///$HOME/.taskhub/taskhub.db` |
-| Backup dir | `TASKHUB_BACKUP_DIR` | `$HOME/.taskhub/backups` |
+| Data dir | `TASKHUB_HOME` | `$HOME/.taskhub` |
+| Database | `TASKHUB_DB_URL` | `sqlite+aiosqlite:///$TASKHUB_HOME/taskhub.db` |
+| Backup dir | `TASKHUB_BACKUP_DIR` | `$TASKHUB_HOME/backups` |
 | Backups to keep | `TASKHUB_BACKUP_KEEP` | `7` (`0` = keep all) |
 | MCP transport | `TASKHUB_TRANSPORT` | `stdio` (`http` = streamable HTTP) |
 | Host | `TASKHUB_HOST` | `127.0.0.1` |
@@ -83,6 +85,7 @@ Zero-config: the app runs with these defaults. Override any setting with the
 | Projects root | `TASKHUB_REPOSITORIES_ROOT` | `$HOME/Repositories` |
 | Memory root | `TASKHUB_MEMORY_ROOT` | `$HOME/.cline/memory` |
 | Sources file | `TASKHUB_SOURCES_FILE` | `src/taskhub/sources.yaml` |
+| Checkout dir | `TASKHUB_PROJECT_DIR` | auto-detected from `pyproject.toml` |
 | Metrics sources | `TASKHUB_METRICS_SOURCES` | `cline` |
 | Claim TTL (min) | `TASKHUB_DEFAULT_CLAIM_TTL_MINUTES` | `30` |
 | Log level | `TASKHUB_LOG_LEVEL` | `INFO` |
@@ -97,9 +100,10 @@ Zero-config: the app runs with these defaults. Override any setting with the
 | Ledgers/notes only | `uv run taskhub import-notes` | — |
 | MCP server (stdio) | `uv run taskhub-mcp` | stdio |
 | MCP server (HTTP) | `TASKHUB_TRANSPORT=http uv run taskhub-mcp` | `http://127.0.0.1:7801` |
+| MCP client config | `uv run taskhub mcp-config` | writes `.mcp.json` |
 | Web API + dashboard | `uv run taskhub-web` | `http://127.0.0.1:8000` |
 | Export digest | `uv run taskhub export --project <slug> --format markdown --out out.md` | — |
-| Backup | `uv run taskhub backup --keep 7` | `~/.taskhub/backups` |
+| Backup | `uv run taskhub backup --keep 7` | `$TASKHUB_HOME/backups` |
 | Docker (web + MCP) | `docker compose up -d --build` | `:8000` (web), `:7801` (MCP) |
 
 ## Collect tasks from all projects
@@ -206,24 +210,36 @@ Ports: MCP `127.0.0.1:7801` (`TASKHUB_HOST`/`TASKHUB_PORT`), web
 
 ## Connect from Claude Code / Cline / Cursor
 
-`.mcp.json`:
+MCP client config is machine-local (it contains the checkout path and database
+location), so it is generated from the current settings and git-ignored:
+
+```bash
+uv run taskhub mcp-config              # write .mcp.json for this checkout
+uv run taskhub mcp-config --stdout     # print it instead
+uv run taskhub mcp-config --out other-mcp.json --project-dir ~/src/taskhub
+```
+
+The generated file (same shape as the committed `.mcp.json.example`):
 
 ```json
 {
   "mcpServers": {
     "taskhub": {
       "command": "uv",
-      "args": ["run", "--directory", "/home/maxbogus/Repositories/taskhub", "taskhub-mcp"],
+      "args": ["run", "--directory", "<checkout>", "taskhub-mcp"],
       "env": {
-        "TASKHUB_DB_URL": "sqlite+aiosqlite:////home/maxbogus/.taskhub/taskhub.db"
+        "TASKHUB_DB_URL": "sqlite+aiosqlite:///<TASKHUB_HOME>/taskhub.db",
+        "TASKHUB_TRANSPORT": "stdio"
       }
     }
   }
 }
 ```
 
-`TASKHUB_DB_URL` above matches the built-in default (`~/.taskhub/taskhub.db`),
-so it can be omitted.
+`TASKHUB_DB_URL` above is the resolved default (`$TASKHUB_HOME/taskhub.db`), so
+it can be omitted. `.mcp.json.example` uses `${workspaceFolder}` for clients that
+support workspace-variable expansion; otherwise run `taskhub mcp-config` once per
+machine.
 
 ## MCP API
 
@@ -268,8 +284,8 @@ uv run taskhub-web          # FastAPI + dashboard on http://127.0.0.1:8000
 ```
 taskhub-mcp   — MCP server (stdio / streamable HTTP :7801)
 taskhub-web   — FastAPI REST + dashboard (:8000)
-taskhub       — CLI: init-db, list-projects, register-projects, import-all,
-                import-notes, import-templates, export, backup
+taskhub       — CLI: init-db, list-projects, mcp-config, register-projects,
+                import-all, import-notes, import-templates, export, backup
 ```
 
 Processes over one database. Layout:
@@ -292,9 +308,9 @@ src/taskhub/
 
 ## Database
 
-SQLite by default at `~/.taskhub/taskhub.db` (created by `init-db`). Override with
-`TASKHUB_DB_URL`, or point it at PostgreSQL (`postgresql+asyncpg://…`). Migrations
-are managed by Alembic.
+SQLite by default at `$TASKHUB_HOME/taskhub.db` (created by `init-db`). Override
+with `TASKHUB_DB_URL`, or point it at PostgreSQL (`postgresql+asyncpg://…`).
+Migrations are managed by Alembic.
 
 ## Deployment (Docker)
 

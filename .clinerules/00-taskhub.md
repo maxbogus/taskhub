@@ -5,12 +5,15 @@
 
 ## Source of truth
 
-The database (`TASKHUB_DB_URL`, default `~/.taskhub/taskhub.db`) is the single
-source of truth. Files in `~/Repositories` are **inputs** for idempotent import,
-not a second tracker.
+The database (`TASKHUB_DB_URL`, default `$TASKHUB_HOME/taskhub.db`, where
+`TASKHUB_HOME` defaults to `~/.taskhub`) is the single source of truth. Files in
+`~/Repositories` are **inputs** for idempotent import, not a second tracker.
 
 ## Layout reminders
 
+- `src/taskhub/config.py` — settings, all paths derived from `TASKHUB_HOME`.
+- `src/taskhub/mcp_config.py` — generates machine-local `.mcp.json`
+  (`taskhub mcp-config`); no absolute paths are committed.
 - `src/taskhub/sources.yaml` — declarative sources (what to scan + parser).
 - `src/taskhub/sources.py` — config loader, discovery, parser registry.
 - `src/taskhub/services/backlog_importer.py` — task parsing functions.

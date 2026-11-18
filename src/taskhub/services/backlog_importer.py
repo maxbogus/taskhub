@@ -157,7 +157,7 @@ def _status_from(value: str | None, default: WorkStatus = WorkStatus.backlog) ->
     if (
         "done" in text
         or "completed" in text
-        or "complete" == text
+        or text == "complete"
         or "заверш" in text
         or "выполн" in text
         or "готово" in text

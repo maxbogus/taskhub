@@ -9,6 +9,7 @@ from pathlib import Path
 
 from taskhub.config import get_settings
 from taskhub.db import init_db, session_scope
+from taskhub.mcp_config import render_mcp_config, write_mcp_config
 from taskhub.repo.projects import list_projects as repo_list_projects
 from taskhub.services.backup import create_backup
 from taskhub.services.collect import import_all as import_all_service
@@ -34,6 +35,17 @@ async def _list_projects() -> None:
             for project in projects
         ]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _mcp_config(out: str, project_dir: str | None, to_stdout: bool) -> None:
+    """Write (or print) an MCP client config generated from current settings."""
+
+    directory = Path(project_dir).expanduser() if project_dir else None
+    if to_stdout:
+        print(render_mcp_config(project_dir=directory), end="")
+        return
+    target = write_mcp_config(Path(out), project_dir=directory)
+    print(json.dumps({"status": "ok", "path": str(target)}, ensure_ascii=False))
 
 
 async def _import_templates() -> None:
@@ -134,6 +146,14 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init-db", help="create database tables")
     subparsers.add_parser("list-projects", help="list registered projects")
+    mcp_config_parser = subparsers.add_parser(
+        "mcp-config", help="write an MCP client config for this checkout"
+    )
+    mcp_config_parser.add_argument("--out", default=".mcp.json")
+    mcp_config_parser.add_argument("--project-dir", default=None)
+    mcp_config_parser.add_argument(
+        "--stdout", action="store_true", help="print the config instead of writing it"
+    )
     subparsers.add_parser("import-templates", help="import markdown templates")
     backup_parser = subparsers.add_parser("backup", help="create a SQLite backup")
     backup_parser.add_argument("--keep", type=int, default=None)
@@ -174,6 +194,8 @@ def main() -> None:
         asyncio.run(_init_db())
     elif args.command == "list-projects":
         asyncio.run(_list_projects())
+    elif args.command == "mcp-config":
+        _mcp_config(args.out, args.project_dir, args.stdout)
     elif args.command == "import-templates":
         asyncio.run(_import_templates())
     elif args.command == "backup":

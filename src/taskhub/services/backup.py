@@ -8,18 +8,7 @@ from pathlib import Path
 import aiosqlite
 
 from taskhub.config import get_settings
-
-
-def _sqlite_path(db_url: str) -> Path | None:
-    """Extract the file path from a file-backed SQLite URL."""
-
-    prefix = "sqlite+aiosqlite:///"
-    if not db_url.startswith(prefix):
-        return None
-    rest = db_url[len(prefix) :]
-    if rest in (":memory:", "") or rest.startswith("file::memory:"):
-        return None
-    return Path(rest)
+from taskhub.db import sqlite_file_path
 
 
 def _backup_files(backup_dir: Path) -> list[Path]:
@@ -50,7 +39,7 @@ async def backup_sqlite(
 ) -> Path:
     """Create a consistent online SQLite backup with ``VACUUM INTO``."""
 
-    db_path = _sqlite_path(db_url)
+    db_path = sqlite_file_path(db_url)
     if db_path is None:
         raise ValueError("backup is only implemented for file-backed SQLite URLs")
     if not db_path.exists():

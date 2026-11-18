@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from taskhub.config import get_settings
+from taskhub.db import ensure_db_parent
 from taskhub.models import Base
 
 config = context.config
@@ -18,7 +19,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", get_settings().db_url)
+db_url = get_settings().db_url
+ensure_db_parent(db_url)
+config.set_main_option("sqlalchemy.url", db_url)
 target_metadata = Base.metadata
 
 

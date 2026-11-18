@@ -1,7 +1,7 @@
 # TaskHub — developer entry points. Run `make` or `make help`.
 
 .DEFAULT_GOAL := help
-.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects import import-notes export backup mcp web docker-up docker-down
+.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects import import-notes export backup mcp mcp-config web docker-up docker-down
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## / — /' | sed 's/^/  make /'
@@ -9,7 +9,7 @@ help: ## Show this help
 install: ## Install dependencies (uv sync --extra dev)
 	uv sync --extra dev
 
-init-db: ## Create tables at ~/.taskhub/taskhub.db
+init-db: ## Create tables under $TASKHUB_HOME (default ~/.taskhub)
 	uv run taskhub init-db
 
 test: ## Run the test suite
@@ -61,6 +61,9 @@ backup: ## Online SQLite backup with retention
 
 mcp: ## Run the MCP server (stdio)
 	uv run taskhub-mcp
+
+mcp-config: ## Regenerate .mcp.json for this checkout (MCP clients)
+	uv run taskhub mcp-config
 
 web: ## Run FastAPI REST + dashboard on :8000
 	uv run taskhub-web

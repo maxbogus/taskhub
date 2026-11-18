@@ -20,11 +20,12 @@ across all local projects. Agents connect over MCP; humans use REST/dashboard.
 
 ```
 src/taskhub/
-  config.py       settings (TASKHUB_* env)
+  config.py       settings (TASKHUB_* env, TASKHUB_HOME)
   db.py           async engine, session_scope, init_db
   models.py       Project, Instance, WorkItem, Dependency, Note,
                   Document, TaskTemplate, Agent, Claim, Session, Metric
   sources.py      declarative source config (reads sources.yaml)
+  mcp_config.py   generates machine-local MCP client config (.mcp.json)
   repo/           projects, work_items, notes, documents, templates,
                   claims, agents
   services/       scope (cwd → project), prioritizer (RICE), gates (roles,
@@ -35,7 +36,7 @@ src/taskhub/
                   backup (retention), metric_ingest
   mcp/            server.py (FastMCP), tools.py, resources.py
   api/            main.py (FastAPI REST + dashboard), static/index.html
-  cli.py          `taskhub init-db|list-projects|import-templates|backup`
+  cli.py          `taskhub init-db|list-projects|mcp-config|import-templates|backup`
 tests/            pytest (async, in-memory/file SQLite)
 alembic/          async migrations
 ```
@@ -45,6 +46,7 @@ alembic/          async migrations
 ```bash
 uv sync --extra dev
 uv run taskhub init-db
+uv run taskhub mcp-config                                # write .mcp.json (machine-local)
 uv run taskhub register-projects --root ~/Repositories   # discover projects
 uv run taskhub import-all --dry-run                      # preview collection
 uv run taskhub import-all                                # bulk backlog import

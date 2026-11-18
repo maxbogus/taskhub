@@ -52,7 +52,23 @@ SKIP_DIRS = {
     "projects",
     "dev",
 }
-HOME_ALIASES = {"home", "Users", "user", "maxbogus", "~"}
+
+
+def _home_aliases() -> set[str]:
+    """Path components that may stand for the current user's home directory."""
+
+    aliases = {"home", "Users", "user", "~"}
+    aliases.add(Path.home().name)
+    for env_var in ("USER", "USERNAME", "LOGNAME"):
+        value = os.environ.get(env_var, "").strip()
+        if value:
+            aliases.add(value)
+    extra = os.environ.get("CLINE_HOME_ALIASES", "")
+    aliases.update(part.strip() for part in extra.split(",") if part.strip())
+    return aliases
+
+
+HOME_ALIASES = _home_aliases()
 
 
 @dataclass

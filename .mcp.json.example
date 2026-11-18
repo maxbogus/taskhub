@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "taskhub": {
+      "command": "uv",
+      "args": ["run", "--directory", "${workspaceFolder}", "taskhub-mcp"],
+      "env": {
+        "TASKHUB_TRANSPORT": "stdio"
+      }
+    }
+  }
+}
