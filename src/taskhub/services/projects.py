@@ -8,37 +8,8 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from taskhub import sources
 from taskhub.repo.projects import upsert_project
-
-SOURCE_MARKERS: tuple[tuple[str, ...], ...] = (
-    ("ai", "tasks"),
-    ("ai", "backlog"),
-    ("ai", "analysis"),
-    ("docs", "backlog"),
-    ("docs", "tasks"),
-    ("backlog",),
-    ("tasks",),
-)
-
-# Standalone files that mark a directory as a project with a backlog/index.
-SOURCE_FILE_MARKERS: tuple[tuple[str, ...], ...] = (
-    ("BACKLOG.md",),
-    ("backlog.md",),
-    ("docs", "TASKS.md"),
-)
-
-# Folders that hold ledgers / notes even when the project has no task backlog.
-NOTE_SOURCE_MARKERS: tuple[tuple[str, ...], ...] = (
-    ("docs", "ledger"),
-    ("docs", "notes"),
-    ("docs", "sessions"),
-    ("reports", "sessions"),
-)
-
-NOTE_SOURCE_FILES: tuple[tuple[str, ...], ...] = (
-    ("docs", "HANDOFF.md"),
-    ("HANDOFF.md",),
-)
 
 # Directories that hold projects but are not projects themselves.
 CONTAINER_DIRS = {"clients", "conf", "projects", "apps", "workspaces", "services"}
@@ -105,30 +76,9 @@ def slugify(value: str) -> str:
 
 
 def _has_sources(directory: Path) -> list[str]:
-    found = [
-        "/".join(marker)
-        for marker in SOURCE_MARKERS
-        if directory.joinpath(*marker).is_dir()
-    ]
-    found.extend(
-        f"{'/'.join(marker)}"
-        for marker in SOURCE_FILE_MARKERS
-        if directory.joinpath(*marker).is_file()
-    )
-    found.extend(
-        f"{'/'.join(marker)}"
-        for marker in NOTE_SOURCE_MARKERS
-        if directory.joinpath(*marker).is_dir()
-    )
-    found.extend(
-        f"{'/'.join(marker)}"
-        for marker in NOTE_SOURCE_FILES
-        if directory.joinpath(*marker).is_file()
-    )
-    rules = directory / ".clinerules"
-    if rules.is_dir() and any(rules.glob("*ledger*.md")):
-        found.append(".clinerules/*ledger*.md")
-    return found
+    """Registrable sources present in a directory, resolved from sources.yaml."""
+
+    return sources.matching_sources(directory)
 
 
 def _readme_description(directory: Path) -> str | None:
@@ -194,7 +144,7 @@ def discover_projects(root: Path, *, max_depth: int = 2) -> list[ProjectCandidat
 
     candidates: list[ProjectCandidate] = []
     seen: set[Path] = set()
-    for directory, sources in _walk(root, 1, max_depth):
+    for directory, matched in _walk(root, 1, max_depth):
         resolved = directory.resolve()
         if resolved in seen:
             continue
@@ -205,7 +155,7 @@ def discover_projects(root: Path, *, max_depth: int = 2) -> list[ProjectCandidat
                 slug=slugify(relative.replace("/", "-")),
                 name=directory.name,
                 root_path=resolved,
-                sources=sources,
+                sources=matched,
                 description=_readme_description(directory),
             )
         )

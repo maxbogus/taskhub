@@ -18,12 +18,13 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from taskhub import sources
 from taskhub.models import (
     Dependency,
     DependencyType,
@@ -434,26 +435,6 @@ def parse_shared_infra_backlog(path: Path) -> list[ParsedTask]:
     return tasks
 
 
-TASK_SECTION_KEYWORDS = (
-    "roadmap",
-    "milestone",
-    "todo",
-    "to-do",
-    "backlog",
-    "next steps",
-    "remaining",
-    "tasks",
-    "task list",
-    "plan",
-    "этап",
-    "план",
-    "задач",
-    "бэклог",
-    "дорожная карта",
-    "следующие шаги",
-    "что осталось",
-)
-
 _TASK_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 _TASK_ID_START = re.compile(r"^([A-Z][A-Z0-9_.-]*-\d+)\s*[:\uff1a-]\s*(.+)")
 _CHECKBOX = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$")
@@ -462,8 +443,7 @@ _NUMBERED = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$")
 
 
 def _heading_is_task_like(heading: str) -> bool:
-    lowered = heading.lower()
-    return any(keyword in lowered for keyword in TASK_SECTION_KEYWORDS)
+    return sources.heading_is_task_like(heading)
 
 
 def _split_sections(text: str) -> list[tuple[str, str]]:
@@ -601,16 +581,6 @@ def parse_backlog_table(path: Path) -> list[ParsedTask]:
     return tasks
 
 
-def _has_task_section(path: Path) -> bool:
-    """Return True when a file has a Roadmap/TODO/Backlog-like heading."""
-
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    return any(_heading_is_task_like(match.group(2)) for match in _TASK_HEADING.finditer(text))
-
-
 def parse_path(path: Path) -> list[ParsedTask]:
     """Parse a file or directory into normalised tasks."""
 
@@ -636,82 +606,24 @@ def parse_path(path: Path) -> list[ParsedTask]:
     return [task] if task is not None else []
 
 
-SOURCE_DIRS: tuple[tuple[str, ...], ...] = (
-    ("ai", "tasks"),
-    ("ai", "backlog"),
-    ("ai", "analysis"),
-    ("docs", "backlog"),
-    ("docs", "tasks"),
-    ("backlog",),
-    ("tasks",),
-)
+def discover_task_sources(root: Path) -> list[sources.DiscoveredSource]:
+    """Expand configured task sources under a project root."""
 
-# Standalone files that may hold a backlog or a task index.
-SOURCE_FILES: tuple[tuple[str, ...], ...] = (
-    ("BACKLOG.md",),
-    ("backlog.md",),
-    ("docs", "TASKS.md"),
-    ("TASKS.md",),
-)
-
-IGNORED_SOURCE_SEGMENTS = {
-    "templates",
-    "node_modules",
-    ".git",
-    ".venv",
-    "venv",
-    "__pycache__",
-}
-
-
-def _iter_markdown_files(base: Path) -> list[Path]:
-    """Recursively collect markdown files, skipping template/tooling folders."""
-
-    files: list[Path] = []
-    for path in sorted(base.rglob("*.md")):
-        try:
-            parts = path.relative_to(base).parts[:-1]
-        except ValueError:
-            parts = path.parts[:-1]
-        if any(part.lower() in IGNORED_SOURCE_SEGMENTS for part in parts):
-            continue
-        if path.name.upper() in SKIP_FILENAMES:
-            continue
-        files.append(path)
-    return files
+    return sources.discover_sources(root, "task")
 
 
 def discover_sources(root: Path) -> list[Path]:
-    """Discover backlog files under a project root (recursive, deduplicated)."""
+    """Backward-compatible list of task source paths under a project root."""
 
-    seen: set[Path] = set()
-    paths: list[Path] = []
+    return [item.path for item in discover_task_sources(root)]
 
-    def add(path: Path) -> None:
-        resolved = path.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            paths.append(path)
 
-    for marker in SOURCE_DIRS:
-        base = root.joinpath(*marker)
-        if base.is_dir():
-            for path in _iter_markdown_files(base):
-                add(path)
+def _explicit_task_spec() -> sources.SourceSpec:
+    return sources.SourceSpec(name="explicit", kind="task", parser="auto")
 
-    for marker in SOURCE_FILES:
-        candidate = root.joinpath(*marker)
-        if candidate.is_file():
-            add(candidate)
 
-    # Only add a README when it actually carries a task-like section,
-    # so navigation READMEs do not flood the backlog.
-    for name in ("README.md", "readme.md"):
-        candidate = root / name
-        if candidate.is_file() and _has_task_section(candidate):
-            add(candidate)
-
-    return paths
+def _parse_discovered(item: sources.DiscoveredSource, root: Path) -> list[ParsedTask]:
+    return cast(list[ParsedTask], sources.parse_source(item.path, root, item.spec))
 
 
 def _relative_ref(path: Path, root: Path, external_id: str) -> str:
@@ -775,20 +687,23 @@ async def import_backlog(
 
     report = ImportReport()
     root = Path(project.root_path).expanduser()
-    sources = [source_path] if source_path else discover_sources(root)
+    if source_path is not None:
+        discovered = [sources.DiscoveredSource(path=Path(source_path), spec=_explicit_task_spec())]
+    else:
+        discovered = discover_task_sources(root)
 
     parsed: list[ParsedTask] = []
     seen: set[tuple[str, str]] = set()
-    for source in sources:
+    for source_item in discovered:
         try:
-            for task in parse_path(Path(source)):
+            for task in _parse_discovered(source_item, root):
                 key = (task.source_path.as_posix(), task.external_id)
                 if key in seen:
                     continue
                 seen.add(key)
                 parsed.append(task)
         except Exception as exc:
-            report.errors.append(f"{source}: {exc}")
+            report.errors.append(f"{source_item.path}: {exc}")
 
     if not dry_run and not skip_backup:
         await create_backup(backup_dir=backup_dir)
@@ -884,3 +799,40 @@ async def import_backlog(
         await session.commit()
 
     return report
+
+
+# --------------------------------------------------------------- parsers
+# Bind parser names (referenced from sources.yaml) to concrete functions.
+
+
+def _parser_ai_task(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedTask]:
+    task = parse_ai_task_file(path)
+    return [task] if task is not None else []
+
+
+def _parser_frontmatter(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedTask]:
+    return parse_frontmatter_file(path)
+
+
+def _parser_shared_infra(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedTask]:
+    return parse_shared_infra_backlog(path)
+
+
+def _parser_task_sections(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedTask]:
+    return parse_task_sections(path)
+
+
+def _parser_backlog_table(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedTask]:
+    return parse_backlog_table(path)
+
+
+def _parser_auto(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedTask]:
+    return parse_path(path)
+
+
+sources.register_parser("ai_task", _parser_ai_task)
+sources.register_parser("frontmatter", _parser_frontmatter)
+sources.register_parser("shared_infra", _parser_shared_infra)
+sources.register_parser("task_sections", _parser_task_sections)
+sources.register_parser("backlog_table", _parser_backlog_table)
+sources.register_parser("auto", _parser_auto)

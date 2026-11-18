@@ -1,0 +1,141 @@
+# TaskHub source configuration.
+#
+# The application only reads this file; no source lists live in Python.
+# Override the whole file with TASKHUB_SOURCES_FILE=/path/to/sources.yaml.
+#
+# Each entry declares what to scan and which registered parser to use.
+# kind:   task | note
+# root:   project (relative to the project root) | memory (relative to TASKHUB_MEMORY_ROOT)
+# paths:  directories (relative path segments)
+# files:  explicit files (relative path segments)
+# parser: auto | ai_task | frontmatter | shared_infra | task_sections |
+#         backlog_table | jsonl_ledger | markdown_note
+
+defaults:
+  patterns: ["**/*.md"]
+  exclude:
+    - templates
+    - node_modules
+    - .git
+    - .venv
+    - venv
+    - __pycache__
+  skip_files:
+    - INDEX.md
+    - CURRENT.md
+    - README.md
+    - IMPLEMENTATION-PLAN.md
+    - TASK-TEMPLATE.md
+    - LEAN-TEMPLATE.md
+    - DEPLOYMENT-CHECKLIST.md
+
+sources:
+  # ---------------------------------------------------------------- tasks
+  - name: ai-tasks
+    kind: task
+    paths: [["ai", "tasks"]]
+    parser: auto
+
+  - name: ai-backlog
+    kind: task
+    paths: [["ai", "backlog"]]
+    parser: auto
+
+  - name: ai-analysis
+    kind: task
+    paths: [["ai", "analysis"]]
+    parser: task_sections
+
+  - name: docs-backlog
+    kind: task
+    paths: [["docs", "backlog"]]
+    parser: auto
+
+  - name: docs-tasks
+    kind: task
+    paths: [["docs", "tasks"]]
+    parser: auto
+
+  - name: backlog-dir
+    kind: task
+    paths: [["backlog"]]
+    parser: auto
+
+  - name: tasks-dir
+    kind: task
+    paths: [["tasks"]]
+    parser: auto
+
+  - name: root-backlog
+    kind: task
+    files: [["BACKLOG.md"], ["backlog.md"]]
+    parser: backlog_table
+
+  - name: task-index
+    kind: task
+    files: [["docs", "TASKS.md"], ["TASKS.md"]]
+    parser: task_sections
+
+  - name: readme-tasks
+    kind: task
+    files: [["README.md"], ["readme.md"]]
+    parser: task_sections
+    requires_task_section: true
+    register_project: false
+
+  # ----------------------------------------------------- notes / ledgers
+  - name: ledger-jsonl
+    kind: note
+    paths: [["docs", "ledger"]]
+    patterns: ["**/*.jsonl"]
+    parser: jsonl_ledger
+    note_kind: auto
+
+  - name: ledger-notes
+    kind: note
+    paths: [["docs", "ledger"]]
+    patterns: ["**/*.md"]
+    parser: markdown_note
+    note_kind: ledger
+    ledger_type: note
+    skip_files: []
+
+  - name: handoff
+    kind: note
+    files: [["docs", "HANDOFF.md"], ["HANDOFF.md"]]
+    parser: markdown_note
+    note_kind: handoff
+    ledger_type: handoff
+
+  - name: notes
+    kind: note
+    paths: [["docs", "notes"]]
+    parser: markdown_note
+    note_kind: comment
+    ledger_type: note
+    skip_files: []
+
+  - name: sessions
+    kind: note
+    paths: [["docs", "sessions"], ["reports", "sessions"]]
+    parser: markdown_note
+    note_kind: ledger
+    ledger_type: session
+    skip_files: []
+
+  - name: ledger-rules
+    kind: note
+    paths: [[".clinerules"]]
+    patterns: ["*ledger*.md"]
+    parser: markdown_note
+    note_kind: ledger
+    ledger_type: rule
+
+  - name: memory
+    kind: note
+    root: memory
+    patterns: ["*.jsonl"]
+    parser: jsonl_ledger
+    note_kind: auto
+    scope: global
+    register_project: false

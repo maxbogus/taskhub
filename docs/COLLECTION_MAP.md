@@ -11,6 +11,9 @@
 
 ## What TaskHub scans automatically
 
+Which files are collected is declared in `src/taskhub/sources.yaml` (not in
+code). Override the whole file with `TASKHUB_SOURCES_FILE`.
+
 Tasks (`services/backlog_importer.py`):
 
 | Source | Pattern |

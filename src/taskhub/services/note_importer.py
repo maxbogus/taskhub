@@ -24,17 +24,18 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from taskhub import sources
+from taskhub.config import get_settings
 from taskhub.models import Note, NoteKind, Project, WorkItem
 from taskhub.repo.projects import upsert_project
 from taskhub.services.backup import create_backup
 
 _TASK_ID_RE = re.compile(r"\b([A-Z][A-Z0-9_.-]{0,30}-\d+)\b")
-_MD_SUFFIXES = {".md", ".markdown"}
 _JSONL_SUFFIXES = {".jsonl"}
 
 
@@ -179,11 +180,22 @@ def _task_ids_from_data(data: dict[str, Any]) -> list[str]:
     return found
 
 
-def parse_jsonl(path: Path, root: Path) -> list[ParsedNote]:
+def _resolve_ledger_kind(filename: str, spec: sources.SourceSpec | None) -> tuple[NoteKind, str]:
+    """Resolve note kind / ledger type from the spec, falling back to filename."""
+
+    derived_kind, derived_type = _kind_for_name(filename)
+    if spec is None:
+        return derived_kind, derived_type
+    kind = derived_kind if spec.note_kind in (None, "auto") else NoteKind(spec.note_kind)
+    return kind, spec.ledger_type or derived_type
+
+
+def parse_jsonl(path: Path, root: Path, spec: sources.SourceSpec | None = None) -> list[ParsedNote]:
     """Parse a JSONL ledger; each non-empty line becomes one note."""
 
     notes: list[ParsedNote] = []
-    kind, ledger_type = _kind_for_name(path.name)
+    kind, ledger_type = _resolve_ledger_kind(path.name, spec)
+    scope = spec.scope if spec is not None else "project"
     text = path.read_text(encoding="utf-8", errors="replace")
     for index, raw in enumerate(text.splitlines()):
         raw = raw.strip()
@@ -198,6 +210,13 @@ def parse_jsonl(path: Path, root: Path) -> list[ParsedNote]:
         key = str(
             data.get("id") or data.get("run_id") or data.get("run_name") or f"line-{index + 1}"
         )
+        meta: dict[str, Any] = {
+            "source": _relative(path, root),
+            "ledger_type": ledger_type,
+            "raw": data,
+        }
+        if scope == "global":
+            meta["scope"] = "global"
         notes.append(
             ParsedNote(
                 external_key=key,
@@ -207,22 +226,30 @@ def parse_jsonl(path: Path, root: Path) -> list[ParsedNote]:
                 ledger_type=ledger_type,
                 task_ids=_task_ids_from_data(data),
                 created_at=_parse_ts(data.get("ts")),
-                meta={
-                    "source": _relative(path, root),
-                    "ledger_type": ledger_type,
-                    "raw": data,
-                },
+                meta=meta,
             )
         )
     return notes
 
 
-def parse_markdown(path: Path, root: Path, kind: NoteKind, ledger_type: str) -> list[ParsedNote]:
+def parse_markdown(
+    path: Path,
+    root: Path,
+    kind: NoteKind,
+    ledger_type: str,
+    scope: str = "project",
+) -> list[ParsedNote]:
     """Parse a markdown note/handoff/session file into a single note."""
 
     text = path.read_text(encoding="utf-8", errors="replace").strip()
     if not text:
         return []
+    meta: dict[str, Any] = {
+        "source": _relative(path, root),
+        "ledger_type": ledger_type,
+    }
+    if scope == "global":
+        meta["scope"] = "global"
     return [
         ParsedNote(
             external_key="file",
@@ -231,67 +258,24 @@ def parse_markdown(path: Path, root: Path, kind: NoteKind, ledger_type: str) -> 
             source_path=path,
             ledger_type=ledger_type,
             task_ids=_scan_task_ids(text),
-            meta={"source": _relative(path, root), "ledger_type": ledger_type},
+            meta=meta,
         )
     ]
 
 
-NOTE_DIRS: tuple[tuple[str, ...], ...] = (
-    ("docs", "ledger"),
-    ("docs", "notes"),
-    ("docs", "sessions"),
-    ("reports", "sessions"),
-)
-
-DEFAULT_MEMORY_ROOT = Path.home() / ".cline" / "memory"
-
-
 def discover_note_sources(root: Path) -> list[Path]:
-    """Collect ledger / handoff / notes / session / rule files under a project."""
+    """Backward-compatible list of note source paths under a project."""
 
-    found: list[Path] = []
-    seen: set[Path] = set()
-
-    def add(path: Path) -> None:
-        resolved = path.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            found.append(path)
-
-    for marker in NOTE_DIRS:
-        base = root.joinpath(*marker)
-        if not base.is_dir():
-            continue
-        for pattern in ("*.md", "*.jsonl"):
-            for path in sorted(base.rglob(pattern)):
-                add(path)
-
-    for parts in (("docs", "HANDOFF.md"), ("HANDOFF.md",)):
-        candidate = root.joinpath(*parts)
-        if candidate.is_file():
-            add(candidate)
-
-    rules = root / ".clinerules"
-    if rules.is_dir():
-        for path in sorted(rules.glob("*ledger*.md")):
-            add(path)
-
-    return found
+    return [item.path for item in sources.discover_sources(root, "note")]
 
 
-def _parse_source(path: Path, root: Path) -> list[ParsedNote]:
-    if path.suffix.lower() in _JSONL_SUFFIXES:
-        return parse_jsonl(path, root)
-    if path.parent.name == ".clinerules":
-        return parse_markdown(path, root, NoteKind.ledger, "rule")
-    name = path.name.lower()
-    if name == "handoff.md":
-        return parse_markdown(path, root, NoteKind.handoff, "handoff")
-    if path.parent.name in ("sessions",) or "session" in name:
-        return parse_markdown(path, root, NoteKind.ledger, "session")
-    if path.parent.name == "notes":
-        return parse_markdown(path, root, NoteKind.comment, "note")
-    return parse_markdown(path, root, NoteKind.ledger, "note")
+def _explicit_note_spec(path: Path) -> sources.SourceSpec:
+    parser = "jsonl_ledger" if path.suffix.lower() in _JSONL_SUFFIXES else "markdown_note"
+    return sources.SourceSpec(name="explicit", kind="note", parser=parser)
+
+
+def _parse_note_discovered(item: sources.DiscoveredSource, root: Path) -> list[ParsedNote]:
+    return cast(list[ParsedNote], sources.parse_source(item.path, root, item.spec))
 
 
 async def _build_task_lookup(session: AsyncSession, project_id: str | None) -> dict[str, str]:
@@ -414,14 +398,20 @@ async def import_notes(
 
     report = NoteImportReport()
     root = Path(project.root_path).expanduser()
-    sources = [source_path] if source_path else discover_note_sources(root)
+    if source_path is not None:
+        source_file = Path(source_path)
+        discovered = [
+            sources.DiscoveredSource(path=source_file, spec=_explicit_note_spec(source_file))
+        ]
+    else:
+        discovered = sources.discover_sources(root, "note")
 
     parsed: list[ParsedNote] = []
-    for source in sources:
+    for item in discovered:
         try:
-            parsed.extend(_parse_source(Path(source), root))
+            parsed.extend(_parse_note_discovered(item, root))
         except Exception as exc:  # one bad file must not abort the project
-            report.errors.append(f"{source}: {exc}")
+            report.errors.append(f"{item.path}: {exc}")
 
     if not dry_run and not skip_backup:
         await create_backup(backup_dir=backup_dir)
@@ -445,7 +435,7 @@ async def import_memory(
     """Import ``~/.cline/memory/*.jsonl`` into the ``memory`` pseudo-project."""
 
     report = NoteImportReport()
-    root = Path(memory_root).expanduser() if memory_root else DEFAULT_MEMORY_ROOT
+    root = Path(memory_root).expanduser() if memory_root is not None else get_settings().memory_root
     if not root.is_dir():
         report.errors.append(f"memory root not found: {root}")
         return report
@@ -461,13 +451,11 @@ async def import_memory(
         description="Global Cline session memory (sessions + ML progress)",
     )
     parsed: list[ParsedNote] = []
-    for path in sorted(root.glob("*.jsonl")):
+    for item in sources.discover_sources(root, "note", source_root="memory"):
         try:
-            parsed.extend(parse_jsonl(path, root))
+            parsed.extend(_parse_note_discovered(item, root))
         except Exception as exc:
-            report.errors.append(f"{path}: {exc}")
-    for pnote in parsed:
-        pnote.meta["scope"] = "global"
+            report.errors.append(f"{item.path}: {exc}")
 
     lookup = await _build_task_lookup(session, None)
     await _apply_parsed(session, project, root, parsed, lookup, report, dry_run)
@@ -553,3 +541,24 @@ async def import_all_notes(
             per_project.append({"slug": "memory", "error": f"{type(exc).__name__}: {exc}"})
 
     return {"totals": totals.to_dict(), "projects": per_project, "dry_run": dry_run}
+
+
+# --------------------------------------------------------------- parsers
+# Bind parser names (referenced from sources.yaml) to concrete functions.
+
+
+def _parser_jsonl_ledger(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedNote]:
+    return parse_jsonl(path, root, spec)
+
+
+def _parser_markdown_note(path: Path, root: Path, spec: sources.SourceSpec) -> list[ParsedNote]:
+    if spec.note_kind and spec.note_kind != "auto":
+        kind = NoteKind(spec.note_kind)
+    else:
+        kind = _kind_for_name(path.name)[0]
+    ledger_type = spec.ledger_type or _kind_for_name(path.name)[1]
+    return parse_markdown(path, root, kind, ledger_type, spec.scope)
+
+
+sources.register_parser("jsonl_ledger", _parser_jsonl_ledger)
+sources.register_parser("markdown_note", _parser_markdown_note)

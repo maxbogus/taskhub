@@ -24,6 +24,7 @@ src/taskhub/
   db.py           async engine, session_scope, init_db
   models.py       Project, Instance, WorkItem, Dependency, Note,
                   Document, TaskTemplate, Agent, Claim, Session, Metric
+  sources.py      declarative source config (reads sources.yaml)
   repo/           projects, work_items, notes, documents, templates,
                   claims, agents
   services/       scope (cwd → project), prioritizer (RICE), gates (roles,
@@ -80,6 +81,8 @@ uv run mypy
 - `services/export.py` renders a markdown/JSON digest (notes + linked tasks)
   for writing posts: `taskhub export --project <slug> --format markdown`.
 - Per-folder source map: `docs/COLLECTION_MAP.md`.
+- Sources (what to scan + which parser) live in `src/taskhub/sources.yaml`;
+  override with `TASKHUB_SOURCES_FILE`. No source lists are hardcoded in Python.
 
 ## Milestones
 

@@ -2,7 +2,9 @@
 
 Local MCP-native single source of truth for tasks, projects, notes and metrics.
 Replaces scattered file backlogs (`*/ai/tasks/`, `*/docs/backlog/`,
-`shared-infrastructure/tasks/`) with one database and one workflow.
+`shared-infrastructure/tasks/`), ledgers (`*/docs/ledger/*.jsonl`) and handoffs
+with one database and one workflow. Which files are collected is declared in
+`sources.yaml`; the per-folder map is `docs/COLLECTION_MAP.md`.
 
 ## Status (M1–M10)
 
@@ -13,9 +15,9 @@ M2: evaluation core — RICE prioritisation, EVM (CPI/SPI/EAC/ETC/VAC, Decimal),
 Monte Carlo duration forecast, automatic project metrics, and MCP tools
 `project_status`, `evaluate_project`, `forecast_project`.
 
-M3: idempotent backlog import from `*/ai/tasks/`, `*/docs/backlog/`,
-`*/backlog/` and `shared-infrastructure/tasks/BACKLOG.md`; SQLite online
-backup before import; MCP tools `import_backlog` and `backup_db`.
+M3: idempotent backlog import driven by `sources.yaml` (task folders, analysis
+roadmaps, root `BACKLOG.md`/`docs/TASKS.md`, README Roadmap sections); SQLite
+online backup before import; MCP tools `import_backlog` and `backup_db`.
 
 M4: Cline task-history ingestion (model, tokens, cost, active time), manual
 `log_activity`, per-task and per-project aggregation with `task_metrics` and
@@ -78,10 +80,56 @@ uv run taskhub import-all
 uv run taskhub import-all --project ai-gateway --project books
 ```
 
-The importer recursively scans `ai/tasks/**`, `ai/backlog/**`, `docs/backlog/**`,
-`docs/tasks/**`, `backlog/**` and `tasks/**` (template folders excluded) and
-upserts by `(project, external_ref)`, so re-runs update instead of duplicating.
-MCP exposes the same flow via `register_projects` and `import_all_backlogs`.
+> Готовый промпт для агента, который переносит задачи из репозитория в трекер:
+> [`docs/PROMPT-migrate-tasks.md`](docs/PROMPT-migrate-tasks.md).
+
+Sources are declared in `src/taskhub/sources.yaml` (directories, explicit files,
+glob patterns and a parser per source), not in Python code. The defaults cover
+`ai/tasks`, `ai/backlog`, `ai/analysis`, `docs/backlog`, `docs/tasks`, `backlog`,
+`tasks`, root `BACKLOG.md`/`docs/TASKS.md`, and READMEs that contain a
+Roadmap/TODO/Backlog section. Items are upserted by `(project, external_ref)`, so
+re-runs update instead of duplicating. MCP exposes the same flow via
+`register_projects` and `import_all_backlogs`.
+
+## Source configuration
+
+All collection sources live in `src/taskhub/sources.yaml`; override the whole
+file with `TASKHUB_SOURCES_FILE`:
+
+```bash
+TASKHUB_SOURCES_FILE=~/my-sources.yaml uv run taskhub import-all --notes
+```
+
+```yaml
+defaults:
+  patterns: ["**/*.md"]
+  exclude: [templates, node_modules, .git, .venv, __pycache__]
+  skip_files: [INDEX.md, README.md]
+
+sources:
+  - name: ai-tasks
+    kind: task              # task | note
+    root: project           # project | memory
+    paths: [["ai", "tasks"]]
+    parser: auto            # ai_task | frontmatter | shared_infra |
+                            # task_sections | backlog_table |
+                            # jsonl_ledger | markdown_note
+  - name: ledger-jsonl
+    kind: note
+    paths: [["docs", "ledger"]]
+    patterns: ["**/*.jsonl"]
+    parser: jsonl_ledger
+    note_kind: auto
+  - name: memory
+    kind: note
+    root: memory            # TASKHUB_MEMORY_ROOT (default ~/.cline/memory)
+    patterns: ["*.jsonl"]
+    parser: jsonl_ledger
+    scope: global
+```
+
+`root: memory` sources live under `TASKHUB_MEMORY_ROOT`; `register_project:
+false` lets a source feed import without making a folder a project.
 
 ## Collect ledgers and notes
 
@@ -162,7 +210,8 @@ uv run taskhub-web          # FastAPI + dashboard on http://127.0.0.1:8000
 ```
 taskhub-mcp   — MCP server (stdio / streamable HTTP :7801)
 taskhub-web   — FastAPI REST + dashboard (:8000)
-taskhub       — CLI: init-db, list-projects, import-templates, backup
+taskhub       — CLI: init-db, list-projects, register-projects, import-all,
+                import-notes, import-templates, export, backup
 ```
 
 Processes over one database. Layout:
@@ -173,8 +222,10 @@ src/taskhub/
   db.py          async engine / session
   models.py      SQLAlchemy 2.0 schema
   repo/           thin repositories over AsyncSession
+  sources.py     declarative source config (reads sources.yaml)
   services/       scope, prioritizer, gates, claims, documents, templates,
                   evm, forecast, metrics, evaluation, backlog_importer,
+                  note_importer (ledgers/notes/memory), export (post digest),
                   backup, metric_ingest
   mcp/            FastMCP server, tools, resources
   api/            FastAPI REST + dashboard (static/index.html)
@@ -225,5 +276,7 @@ uv run mypy
 
 ## Milestones
 
-All planned milestones M1–M9 are complete. Suggested follow-ups: SQLite FTS5 for
-note search, partitioned metrics for PostgreSQL, and auth in front of the dashboard.
+All planned milestones M1–M10 are complete. Suggested follow-ups: SQLite FTS5 for
+note search, note filtering in the dashboard, a `portfolio` pseudo-project for
+root-level indexes, partitioned metrics for PostgreSQL, and auth in front of the
+dashboard.

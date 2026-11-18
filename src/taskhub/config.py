@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     backup_dir: Path = Path("./backups")
     backup_keep: int = 7
     repositories_root: Path = Path.home() / "Repositories"
+    sources_file: Path | None = None
+    memory_root: Path = Path.home() / ".cline" / "memory"
     metrics_sources: str = "cline"
     log_level: str = "INFO"
     default_claim_ttl_minutes: int = 30

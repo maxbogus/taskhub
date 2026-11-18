@@ -11,7 +11,9 @@ not a second tracker.
 
 ## Layout reminders
 
-- `src/taskhub/services/backlog_importer.py` — task discovery/parsing.
+- `src/taskhub/sources.yaml` — declarative sources (what to scan + parser).
+- `src/taskhub/sources.py` — config loader, discovery, parser registry.
+- `src/taskhub/services/backlog_importer.py` — task parsing functions.
 - `src/taskhub/services/note_importer.py` — ledgers/notes/handoffs/memory.
 - `src/taskhub/services/export.py` — markdown/JSON digest for posts.
 - `src/taskhub/services/projects.py` — project discovery + README description.
