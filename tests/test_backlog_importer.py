@@ -9,7 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from taskhub.models import Dependency, WorkItem, WorkStatus
 from taskhub.repo.projects import create_project
-from taskhub.services.backlog_importer import import_backlog, parse_ai_task_file
+from taskhub.services.backlog_importer import (
+    discover_sources,
+    import_backlog,
+    parse_ai_task_file,
+    parse_backlog_table,
+    parse_path,
+    parse_task_sections,
+)
 
 AI_TASK = """# TASK-MEDIUM-002: Add Docker non-root user
 
@@ -85,9 +92,7 @@ def _seed_project(tmp_path: Path) -> None:
 
 async def test_import_all_formats(session: AsyncSession, tmp_path: Path) -> None:
     _seed_project(tmp_path)
-    project = await create_project(
-        session, slug="demo", name="Demo", root_path=str(tmp_path)
-    )
+    project = await create_project(session, slug="demo", name="Demo", root_path=str(tmp_path))
     await session.commit()
 
     report = await import_backlog(session, project, skip_backup=True)
@@ -95,11 +100,7 @@ async def test_import_all_formats(session: AsyncSession, tmp_path: Path) -> None
     assert report.created == 4
     assert report.errors == []
     items = list(
-        (
-            await session.execute(
-                select(WorkItem).where(WorkItem.project_id == project.id)
-            )
-        )
+        (await session.execute(select(WorkItem).where(WorkItem.project_id == project.id)))
         .scalars()
         .all()
     )
@@ -124,9 +125,7 @@ async def test_import_all_formats(session: AsyncSession, tmp_path: Path) -> None
 
 async def test_import_is_idempotent(session: AsyncSession, tmp_path: Path) -> None:
     _write(tmp_path / "ai" / "tasks" / "backlog" / "TASK-MEDIUM-002.md", AI_TASK)
-    project = await create_project(
-        session, slug="demo", name="Demo", root_path=str(tmp_path)
-    )
+    project = await create_project(session, slug="demo", name="Demo", root_path=str(tmp_path))
     await session.commit()
 
     first = await import_backlog(session, project, skip_backup=True)
@@ -136,11 +135,7 @@ async def test_import_is_idempotent(session: AsyncSession, tmp_path: Path) -> No
     assert second.created == 0
     assert second.updated + second.skipped == 1
     items = list(
-        (
-            await session.execute(
-                select(WorkItem).where(WorkItem.project_id == project.id)
-            )
-        )
+        (await session.execute(select(WorkItem).where(WorkItem.project_id == project.id)))
         .scalars()
         .all()
     )
@@ -149,14 +144,10 @@ async def test_import_is_idempotent(session: AsyncSession, tmp_path: Path) -> No
 
 async def test_dry_run_does_not_write(session: AsyncSession, tmp_path: Path) -> None:
     _write(tmp_path / "ai" / "tasks" / "backlog" / "TASK-MEDIUM-002.md", AI_TASK)
-    project = await create_project(
-        session, slug="demo", name="Demo", root_path=str(tmp_path)
-    )
+    project = await create_project(session, slug="demo", name="Demo", root_path=str(tmp_path))
     await session.commit()
 
-    report = await import_backlog(
-        session, project, dry_run=True, skip_backup=True
-    )
+    report = await import_backlog(session, project, dry_run=True, skip_backup=True)
 
     assert report.created == 1
     items = list((await session.execute(select(WorkItem))).scalars().all())
@@ -197,3 +188,71 @@ def test_parse_ai_task_file_handles_ru_and_emoji(tmp_path: Path) -> None:
     assert task.rice == {"R": 3.0, "I": 5.0, "C": 0.8, "score": 0.92}
     assert task.acceptance_criteria is not None
     assert "RAG работает" in task.acceptance_criteria
+
+
+README_TASKS = """# Demo project
+
+Some intro.
+
+## Roadmap
+- [ ] T-100: Wire the API
+- [x] Set up CI
+- Plain bullet task
+
+## Usage
+- unrelated example
+"""
+
+TABLE_BACKLOG = """# Бэклог
+
+| ID | Задача | P | SP | Dep |
+|----|--------|---|----|-----|
+| F1.1 | Настроить репозиторий | P0 | 3 | — |
+| F1.2 | Создать каталог | P1 | 8 | F1.1 |
+"""
+
+
+def test_parse_readme_task_sections(tmp_path: Path) -> None:
+    path = tmp_path / "README.md"
+    path.write_text(README_TASKS, encoding="utf-8")
+
+    tasks = parse_task_sections(path)
+
+    by_title = {task.title: task for task in tasks}
+    assert by_title["Wire the API"].external_id == "T-100"
+    assert by_title["Set up CI"].status is WorkStatus.done
+    assert "Plain bullet task" in by_title
+    assert all("unrelated example" not in task.title for task in tasks)
+
+
+def test_parse_backlog_table(tmp_path: Path) -> None:
+    path = tmp_path / "BACKLOG.md"
+    path.write_text(TABLE_BACKLOG, encoding="utf-8")
+
+    tasks = {task.external_id: task for task in parse_backlog_table(path)}
+
+    assert set(tasks) == {"F1.1", "F1.2"}
+    assert tasks["F1.1"].priority == 0
+    assert tasks["F1.1"].estimate_hours == 24.0
+    assert tasks["F1.2"].depends_on == ["F1.1"]
+
+
+def test_parse_path_routes_readme_and_backlog(tmp_path: Path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text(README_TASKS, encoding="utf-8")
+    backlog = tmp_path / "BACKLOG.md"
+    backlog.write_text(TABLE_BACKLOG, encoding="utf-8")
+
+    assert len(parse_path(readme)) >= 3
+    assert len(parse_path(backlog)) == 2
+
+
+def test_discover_sources_includes_readme_analysis_and_backlog(tmp_path: Path) -> None:
+    _write(tmp_path / "README.md", README_TASKS)
+    _write(tmp_path / "BACKLOG.md", TABLE_BACKLOG)
+    _write(tmp_path / "ai" / "analysis" / "roadmap.md", "## Roadmap\n- [ ] R-1: Ship")
+    _write(tmp_path / "docs" / "TASKS.md", "## Tasks\n- [ ] Do it")
+
+    names = {path.name for path in discover_sources(tmp_path)}
+
+    assert {"README.md", "BACKLOG.md", "roadmap.md", "TASKS.md"} <= names

@@ -56,6 +56,7 @@ from taskhub.services.claims import (
 from taskhub.services.collect import import_all as import_all_service
 from taskhub.services.documents import upsert_document as upsert_document_service
 from taskhub.services.evaluation import evaluate_project as evaluate_project_service
+from taskhub.services.export import export_notes as export_notes_service
 from taskhub.services.gates import (
     FlowError,
     blocking_items,
@@ -78,6 +79,7 @@ from taskhub.services.metric_ingest import (
 from taskhub.services.metric_ingest import (
     task_metrics as task_metrics_service,
 )
+from taskhub.services.note_importer import import_all_notes as import_all_notes_service
 from taskhub.services.projects import register_projects as register_projects_service
 from taskhub.services.scope import resolve_scope
 from taskhub.services.templates import (
@@ -237,9 +239,7 @@ async def get_next_item(
         scope = await resolve_scope(session, cwd=cwd, project_slug=project_slug)
         if scope.project is None:
             return {"item": None, "reason": "global scope: pass project_slug or cwd"}
-        item = await next_item(
-            session, scope.project.id, required_skill=required_skill
-        )
+        item = await next_item(session, scope.project.id, required_skill=required_skill)
         if item is None:
             return {
                 "item": None,
@@ -380,18 +380,14 @@ async def project_status(project_slug: str) -> dict[str, Any]:
         }
 
 
-async def evaluate_project(
-    project_slug: str, n_iterations: int = 2000
-) -> dict[str, Any]:
+async def evaluate_project(project_slug: str, n_iterations: int = 2000) -> dict[str, Any]:
     """Full project evaluation: RICE, EVM, Monte Carlo and health."""
 
     async with session_scope() as session:
         project = await get_project_by_slug(session, project_slug)
         if project is None:
             raise ValueError(f"project '{project_slug}' not found")
-        return await evaluate_project_service(
-            session, project, n_iterations=n_iterations
-        )
+        return await evaluate_project_service(session, project, n_iterations=n_iterations)
 
 
 async def forecast_project(project_slug: str) -> dict[str, Any]:
@@ -431,9 +427,7 @@ async def import_backlog(
         return payload
 
 
-async def backup_db(
-    backup_dir: str | None = None, keep: int | None = None
-) -> dict[str, Any]:
+async def backup_db(backup_dir: str | None = None, keep: int | None = None) -> dict[str, Any]:
     """Create an online SQLite backup and return its path (with retention)."""
 
     target = await create_backup(
@@ -669,9 +663,7 @@ async def get_document(project_slug: str, type: str, slug: str) -> dict[str, Any
         return _serialize_document(document, include_content=True)
 
 
-async def list_documents(
-    project_slug: str, type: str | None = None
-) -> list[dict[str, Any]]:
+async def list_documents(project_slug: str, type: str | None = None) -> list[dict[str, Any]]:
     """List active documents for a project."""
 
     doc_type = _doc_type(type) if type else None
@@ -679,13 +671,8 @@ async def list_documents(
         project = await get_project_by_slug(session, project_slug)
         if project is None:
             raise ValueError(f"project '{project_slug}' not found")
-        documents = await repo_list_documents(
-            session, project.id, doc_type=doc_type
-        )
-        return [
-            _serialize_document(document, include_content=False)
-            for document in documents
-        ]
+        documents = await repo_list_documents(session, project.id, doc_type=doc_type)
+        return [_serialize_document(document, include_content=False) for document in documents]
 
 
 def _serialize_template(template: TaskTemplate) -> dict[str, Any]:
@@ -723,9 +710,7 @@ async def apply_template(
         project = await get_project_by_slug(session, project_slug)
         if project is None:
             raise ValueError(f"project '{project_slug}' not found")
-        template = await repo_get_template(
-            session, template_name, project_id=project.id
-        )
+        template = await repo_get_template(session, template_name, project_id=project.id)
         if template is None:
             raise ValueError(f"template '{template_name}' not found")
         item = await apply_template_service(
@@ -753,13 +738,9 @@ async def import_templates(
                 raise ValueError(f"project '{project_slug}' not found")
             project_id = project.id
         roots = (
-            [Path(path).expanduser() for path in paths]
-            if paths
-            else list(DEFAULT_TEMPLATE_SOURCES)
+            [Path(path).expanduser() for path in paths] if paths else list(DEFAULT_TEMPLATE_SOURCES)
         )
-        report = await import_templates_service(
-            session, source_roots=roots, project_id=project_id
-        )
+        report = await import_templates_service(session, source_roots=roots, project_id=project_id)
         await session.commit()
         return report.to_dict()
 
@@ -811,9 +792,7 @@ async def register_agent(
     except ValueError as exc:
         raise ValueError(f"unknown role: {role}") from exc
     async with session_scope() as session:
-        agent = await repo_get_or_create_agent(
-            session, name=name, kind=kind, role=role_enum
-        )
+        agent = await repo_get_or_create_agent(session, name=name, kind=kind, role=role_enum)
         await session.commit()
         return _serialize_agent(agent)
 
@@ -852,9 +831,7 @@ async def release_task(item_id: str, agent_name: str) -> dict[str, Any]:
     """Release the agent's active leases on a work item."""
 
     async with session_scope() as session:
-        released = await release_claim_service(
-            session, item_id=item_id, agent_name=agent_name
-        )
+        released = await release_claim_service(session, item_id=item_id, agent_name=agent_name)
         await session.commit()
         return {"item_id": item_id, "agent": agent_name, "released": released}
 
@@ -895,9 +872,7 @@ async def list_tasks(
         project = await get_project_by_slug(session, project_slug)
         if project is None:
             raise ValueError(f"project '{project_slug}' not found")
-        items = await repo_list_items(
-            session, project.id, status=status_enum, limit=limit
-        )
+        items = await repo_list_items(session, project.id, status=status_enum, limit=limit)
         return [serialize_item(item) for item in items]
 
 
@@ -926,6 +901,7 @@ async def import_all_backlogs(
     dry_run: bool = False,
     skip_backup: bool = False,
     project_slugs: list[str] | None = None,
+    include_notes: bool = False,
 ) -> dict[str, Any]:
     """Import backlogs for every registered project (or a subset)."""
 
@@ -936,17 +912,76 @@ async def import_all_backlogs(
             known = {project.slug for project in projects}
             missing = wanted - known
             if missing:
-                raise ValueError(
-                    f"projects not found: {', '.join(sorted(missing))}"
-                )
+                raise ValueError(f"projects not found: {', '.join(sorted(missing))}")
             projects = [project for project in projects if project.slug in wanted]
         report = await import_all_service(
             session,
             projects,
             dry_run=dry_run,
             skip_backup=skip_backup,
+            include_notes=include_notes,
         )
         payload = report.to_dict()
         payload["dry_run"] = dry_run
         payload["project_count"] = len(projects)
         return payload
+
+
+async def import_notes(
+    project_slugs: list[str] | None = None,
+    dry_run: bool = False,
+    skip_backup: bool = False,
+    include_memory: bool = True,
+) -> dict[str, Any]:
+    """Import ledgers/notes for registered projects and the global memory."""
+
+    async with session_scope() as session:
+        projects = await repo_list_projects(session)
+        if project_slugs:
+            wanted = set(project_slugs)
+            known = {project.slug for project in projects}
+            missing = wanted - known
+            if missing:
+                raise ValueError(f"projects not found: {', '.join(sorted(missing))}")
+            projects = [project for project in projects if project.slug in wanted]
+        payload = await import_all_notes_service(
+            session,
+            projects,
+            include_memory=include_memory,
+            dry_run=dry_run,
+            skip_backup=skip_backup,
+        )
+        payload["project_count"] = len(projects)
+        return payload
+
+
+async def export_notes(
+    project_slug: str | None = None,
+    kind: str | None = None,
+    ledger_type: str | None = None,
+    since: str | None = None,
+    output_format: str = "markdown",
+    limit: int = 500,
+) -> dict[str, Any]:
+    """Export a notes digest (markdown or JSON) for writing posts."""
+
+    async with session_scope() as session:
+        text = await export_notes_service(
+            session,
+            project_slug=project_slug,
+            kind=kind,
+            ledger_type=ledger_type,
+            since=since,
+            output_format=output_format,
+            limit=limit,
+        )
+        return {
+            "format": output_format,
+            "filters": {
+                "project": project_slug,
+                "kind": kind,
+                "ledger_type": ledger_type,
+                "since": since,
+            },
+            "content": text,
+        }

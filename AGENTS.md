@@ -30,6 +30,7 @@ src/taskhub/
                   transitions, audit notes), claims (TTL leases), documents
                   (versioned upsert), templates (import/apply), evm (Decimal),
                   forecast (Monte Carlo), metrics, evaluation, backlog_importer,
+                  note_importer (ledgers/notes/memory), export (post digest),
                   backup (retention), metric_ingest
   mcp/            server.py (FastMCP), tools.py, resources.py
   api/            main.py (FastAPI REST + dashboard), static/index.html
@@ -46,6 +47,9 @@ uv run taskhub init-db
 uv run taskhub register-projects --root ~/Repositories   # discover projects
 uv run taskhub import-all --dry-run                      # preview collection
 uv run taskhub import-all                                # bulk backlog import
+uv run taskhub import-all --notes                        # tasks + ledgers/notes
+uv run taskhub import-notes                              # ledgers/notes/memory only
+uv run taskhub export --format markdown --out out.md     # notes digest for posts
 uv run taskhub-mcp                       # stdio MCP
 TASKHUB_TRANSPORT=http uv run taskhub-mcp
 uv run taskhub-web                       # REST + dashboard (:8000)
@@ -66,8 +70,19 @@ uv run mypy
 - Claim = TTL lease; expired claims do not block work.
 - Compact responses by default; full texts via MCP resources.
 
+## Notes, ledgers and export
+
+- `services/note_importer.py` imports `docs/ledger/*.jsonl`, `docs/HANDOFF.md`,
+  `docs/notes/`, `docs/sessions/`, `.clinerules/*-ledger*.md` and
+  `~/.cline/memory/*.jsonl` (pseudo-project `memory`).
+- Notes are schema-agnostic, linked to tasks via `tickets` ids / task-id tokens,
+  and upserted idempotently by `(project_id, external_ref)`.
+- `services/export.py` renders a markdown/JSON digest (notes + linked tasks)
+  for writing posts: `taskhub export --project <slug> --format markdown`.
+- Per-folder source map: `docs/COLLECTION_MAP.md`.
+
 ## Milestones
 
 M1 scaffold (done) → M2 evaluation core (done) → M3 import (done) → M4 metrics (done) →
 M5 gates (done) → M6 notes/docs/templates (done) → M7 claims (done) →
-M8 dashboard (done) → M9 deploy/backup (done).
+M8 dashboard (done) → M9 deploy/backup (done) → M10 ledgers/notes + export (done).

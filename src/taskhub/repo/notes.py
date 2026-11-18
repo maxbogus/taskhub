@@ -18,6 +18,7 @@ async def add_note(
     work_item_id: str | None = None,
     kind: NoteKind = NoteKind.comment,
     author: str | None = None,
+    external_ref: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> Note:
     """Insert a note and flush it so its generated id is available."""
@@ -28,6 +29,7 @@ async def add_note(
         kind=kind,
         content=content,
         author=author,
+        external_ref=external_ref,
         meta=meta or {},
     )
     session.add(note)

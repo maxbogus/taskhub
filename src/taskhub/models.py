@@ -70,6 +70,7 @@ class NoteKind(enum.StrEnum):
     comment = "comment"
     decision = "decision"
     handoff = "handoff"
+    ledger = "ledger"
 
 
 class DocType(enum.StrEnum):
@@ -248,6 +249,7 @@ class Note(Base):
     __table_args__ = (
         Index("ix_note_project_created", "project_id", "created_at"),
         Index("ix_note_item_created", "work_item_id", "created_at"),
+        Index("uq_note_external_ref", "project_id", "external_ref", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -262,6 +264,10 @@ class Note(Base):
     )
     content: Mapped[str] = mapped_column(Text)
     author: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Stable key of the imported source entry, e.g.
+    # "docs/ledger/decisions.jsonl:ADR-001". NULL for interactive notes;
+    # SQLite/PostgreSQL treat NULLs as distinct in the unique index.
+    external_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     meta: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 

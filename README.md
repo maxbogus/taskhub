@@ -4,7 +4,7 @@ Local MCP-native single source of truth for tasks, projects, notes and metrics.
 Replaces scattered file backlogs (`*/ai/tasks/`, `*/docs/backlog/`,
 `shared-infrastructure/tasks/`) with one database and one workflow.
 
-## Status (M1–M9)
+## Status (M1–M10)
 
 M1: database schema, Alembic migrations, FastMCP server, scope resolution by
 `cwd`, tools `create_task`, `get_context`, `get_next_item`, `list_projects`.
@@ -41,6 +41,14 @@ M8: FastAPI REST API (`/api/projects`, `/api/projects/{slug}/status|items|docume
 M9: Docker deployment (multi-stage, non-root, healthchecks) and backup retention —
 `taskhub backup --keep N`, `backup_keep` setting, `backup_db(keep=...)`.
 
+M10: ledger/notes collection and post export — `services/note_importer.py`
+imports `docs/ledger/*.jsonl`, `docs/HANDOFF.md`, `docs/notes/`,
+`docs/sessions/`, `.clinerules/*-ledger*.md` and `~/.cline/memory/*.jsonl`
+(pseudo-project `memory`); notes are linked to tasks by `tickets` ids and
+upserted idempotently. `services/export.py` renders a markdown/JSON digest for
+writing posts (`taskhub export`, MCP `export_notes`). Per-folder source map in
+`docs/COLLECTION_MAP.md`.
+
 ## Requirements
 
 - Python 3.12
@@ -74,6 +82,31 @@ The importer recursively scans `ai/tasks/**`, `ai/backlog/**`, `docs/backlog/**`
 `docs/tasks/**`, `backlog/**` and `tasks/**` (template folders excluded) and
 upserts by `(project, external_ref)`, so re-runs update instead of duplicating.
 MCP exposes the same flow via `register_projects` and `import_all_backlogs`.
+
+## Collect ledgers and notes
+
+```bash
+uv run taskhub import-notes              # project ledgers + ~/.cline/memory
+uv run taskhub import-notes --no-memory  # project ledgers only
+uv run taskhub import-all --notes        # tasks and notes in one run
+```
+
+Sources: `docs/ledger/*.jsonl`, `docs/HANDOFF.md`, `docs/notes/`,
+`docs/sessions/`, `reports/sessions/`, `.clinerules/*-ledger*.md` and the
+global `~/.cline/memory/*.jsonl` (pseudo-project `memory`). Notes are
+schema-agnostic, linked to tasks by `tickets` ids / task-id tokens, and
+upserted by `(project_id, external_ref)`. See `docs/COLLECTION_MAP.md` for the
+per-folder map.
+
+## Export a digest for posts
+
+```bash
+uv run taskhub export --project chem_trial --format markdown --out posts/chem.md
+uv run taskhub export --kind insight --since 2026-10-01 --format json --limit 200
+```
+
+The digest groups notes by project and includes the linked task title/status, so
+it can be fed directly to the text skills to write blog or social posts.
 
 ## Run MCP server (stdio)
 

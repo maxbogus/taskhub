@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from taskhub.models import Project
 from taskhub.services.backlog_importer import import_backlog
 from taskhub.services.backup import create_backup
+from taskhub.services.note_importer import import_all_notes
 
 
 @dataclass
@@ -21,9 +22,13 @@ class CollectReport:
     totals: dict[str, int] = field(
         default_factory=lambda: {"created": 0, "updated": 0, "skipped": 0, "errors": 0}
     )
+    notes: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"totals": self.totals, "projects": self.projects}
+        payload: dict[str, Any] = {"totals": self.totals, "projects": self.projects}
+        if self.notes is not None:
+            payload["notes"] = self.notes
+        return payload
 
 
 async def import_all(
@@ -33,6 +38,7 @@ async def import_all(
     dry_run: bool = False,
     skip_backup: bool = False,
     backup_dir: Path | None = None,
+    include_notes: bool = False,
 ) -> CollectReport:
     """Import backlogs for every project; one backup covers the whole run."""
 
@@ -50,9 +56,7 @@ async def import_all(
                 backup_dir=backup_dir,
             )
         except Exception as exc:  # one bad project must not abort the run
-            report.projects.append(
-                {"slug": project.slug, "error": f"{type(exc).__name__}: {exc}"}
-            )
+            report.projects.append({"slug": project.slug, "error": f"{type(exc).__name__}: {exc}"})
             report.totals["errors"] += 1
             continue
 
@@ -70,5 +74,14 @@ async def import_all(
         for key in ("created", "updated", "skipped"):
             report.totals[key] += int(payload[key])
         report.totals["errors"] += len(payload["errors"])
+
+    if include_notes:
+        report.notes = await import_all_notes(
+            session,
+            projects,
+            dry_run=dry_run,
+            skip_backup=True,
+            backup_dir=backup_dir,
+        )
 
     return report

@@ -42,6 +42,8 @@ mcp.tool()(tools.list_claims)
 mcp.tool()(tools.list_tasks)
 mcp.tool()(tools.register_projects)
 mcp.tool()(tools.import_all_backlogs)
+mcp.tool()(tools.import_notes)
+mcp.tool()(tools.export_notes)
 
 mcp.resource("task://{item_id}")(resources.task_doc)
 mcp.resource("task://{item_id}/context")(resources.task_context)

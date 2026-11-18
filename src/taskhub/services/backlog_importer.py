@@ -141,9 +141,7 @@ def _priority_from(value: str | int | None, default: int = 3) -> int:
     return default
 
 
-def _status_from(
-    value: str | None, default: WorkStatus = WorkStatus.backlog
-) -> WorkStatus:
+def _status_from(value: str | None, default: WorkStatus = WorkStatus.backlog) -> WorkStatus:
     text = (value or "").strip().lower()
     if not text:
         return default
@@ -155,13 +153,7 @@ def _status_from(
         or text in ("active", "in-progress", "in_progress")
     ):
         return WorkStatus.in_progress
-    if (
-        "done" in text
-        or "заверш" in text
-        or "выполн" in text
-        or "готово" in text
-        or "✅" in text
-    ):
+    if "done" in text or "заверш" in text or "выполн" in text or "готово" in text or "✅" in text:
         return WorkStatus.done
     if "archive" in text or "архив" in text:
         return WorkStatus.archived
@@ -184,9 +176,9 @@ def _normalize_hours(value: Any, unit: str | None = None) -> float | None:
     except (TypeError, ValueError):
         return None
     unit_text = (unit or "").lower()
-    if (
-        any(token in unit_text for token in ("story", "points", "стори"))
-        or unit_text.strip() in ("sp", "сп")
+    if any(token in unit_text for token in ("story", "points", "стори")) or unit_text.strip() in (
+        "sp",
+        "сп",
     ):
         return round(numeric * 8.0, 4)
     if any(token in unit_text for token in ("day", "дн", "день")):
@@ -202,9 +194,7 @@ def _section(text: str, heading: str) -> str | None:
         rf"(?=^#{{2,4}}\s+|\Z)"
     )
     best: str | None = None
-    for match in re.finditer(
-        pattern, text, re.MULTILINE | re.DOTALL | re.IGNORECASE
-    ):
+    for match in re.finditer(pattern, text, re.MULTILINE | re.DOTALL | re.IGNORECASE):
         content = match.group(1).strip()
         if content and (best is None or len(content) > len(best)):
             best = content
@@ -358,9 +348,7 @@ def parse_ai_task_file(path: Path) -> ParsedTask | None:
         status=_status_from(_bold_field(text, "Status"), _status_from_path(path)),
         priority=_priority_from(_bold_field(text, "Priority")),
         description=(
-            _section(text, "Problem")
-            or _section(text, "Проблема")
-            or text.strip()[:20000]
+            _section(text, "Problem") or _section(text, "Проблема") or text.strip()[:20000]
         ),
         estimate_hours=_effort_from_section(rice_section),
         rice=_rice_from_bullets(rice_section),
@@ -393,9 +381,7 @@ def parse_frontmatter_file(path: Path) -> list[ParsedTask]:
                 status=_status_from(block.get("status"), _status_from_path(path)),
                 priority=_priority_from(block.get("priority")),
                 description=text.strip()[:20000],
-                estimate_hours=_normalize_hours(
-                    block.get("effort"), block.get("unit")
-                ),
+                estimate_hours=_normalize_hours(block.get("effort"), block.get("unit")),
                 rice=_rice_from_mapping(block),
                 depends_on=_split_depends(block.get("depends_on")),
                 tags=[str(tag) for tag in (block.get("tags") or [])],
@@ -432,15 +418,11 @@ def parse_shared_infra_backlog(path: Path) -> list[ParsedTask]:
                     external_id=external_id,
                     title=title,
                     source_path=path,
-                    status=_status_from(
-                        _field_value(block, "Статус"), WorkStatus.backlog
-                    ),
+                    status=_status_from(_field_value(block, "Статус"), WorkStatus.backlog),
                     priority=priority,
                     description=_field_value(block, "Описание"),
                     estimate_hours=(
-                        _normalize_hours(
-                            effort_match.group(1), effort_match.group(2)
-                        )
+                        _normalize_hours(effort_match.group(1), effort_match.group(2))
                         if effort_match
                         else None
                     ),
@@ -452,6 +434,183 @@ def parse_shared_infra_backlog(path: Path) -> list[ParsedTask]:
     return tasks
 
 
+TASK_SECTION_KEYWORDS = (
+    "roadmap",
+    "milestone",
+    "todo",
+    "to-do",
+    "backlog",
+    "next steps",
+    "remaining",
+    "tasks",
+    "task list",
+    "plan",
+    "этап",
+    "план",
+    "задач",
+    "бэклог",
+    "дорожная карта",
+    "следующие шаги",
+    "что осталось",
+)
+
+_TASK_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+_TASK_ID_START = re.compile(r"^([A-Z][A-Z0-9_.-]*-\d+)\s*[:\uff1a-]\s*(.+)")
+_CHECKBOX = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$")
+_BULLET = re.compile(r"^\s*[-*]\s+(?!\[[ xX]\])(.+?)\s*$")
+_NUMBERED = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$")
+
+
+def _heading_is_task_like(heading: str) -> bool:
+    lowered = heading.lower()
+    return any(keyword in lowered for keyword in TASK_SECTION_KEYWORDS)
+
+
+def _split_sections(text: str) -> list[tuple[str, str]]:
+    """Split markdown into ``(heading, body)`` pairs by ATX headings."""
+
+    sections: list[tuple[str, str]] = []
+    matches = list(_TASK_HEADING.finditer(text))
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.append((match.group(2).strip(), text[start:end]))
+    return sections
+
+
+def _slug_id(text: str, index: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60]
+    return slug or f"item-{index}"
+
+
+def parse_task_sections(path: Path) -> list[ParsedTask]:
+    """Extract tasks from task-like sections of README / analysis files.
+
+    Only headings that look like Roadmap / TODO / Backlog / Plan are
+    considered; inside them checkbox items, bullets and numbered items become
+    tasks. Files without such sections yield an empty list (no noise).
+    """
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    tasks: list[ParsedTask] = []
+    for heading, body in _split_sections(text):
+        if not _heading_is_task_like(heading):
+            continue
+        for line in body.splitlines():
+            status = WorkStatus.backlog
+            content: str | None = None
+            checkbox = _CHECKBOX.match(line)
+            if checkbox:
+                status = WorkStatus.done if checkbox.group(1).lower() == "x" else WorkStatus.backlog
+                content = checkbox.group(2)
+            else:
+                bullet = _BULLET.match(line) or _NUMBERED.match(line)
+                if bullet:
+                    content = bullet.group(1)
+            if not content:
+                continue
+            title = re.sub(r"\s+", " ", content).strip()
+            if len(title) < 3:
+                continue
+            external_id = _slug_id(title, len(tasks) + 1)
+            id_match = _TASK_ID_START.match(title)
+            if id_match:
+                external_id = id_match.group(1)
+                title = id_match.group(2).strip()
+            tasks.append(
+                ParsedTask(
+                    external_id=external_id,
+                    title=title[:300],
+                    source_path=path,
+                    status=status,
+                    priority=3,
+                    description=title[:2000],
+                    meta={"format": "task_sections", "section": heading},
+                )
+            )
+            if len(tasks) >= 100:
+                return tasks
+    return tasks
+
+
+def _table_is_id(value: str) -> bool:
+    return value == "id" or value.startswith("id")
+
+
+def _table_cell(cells: list[str], columns: dict[str, int], name: str) -> str | None:
+    pos = columns.get(name)
+    if pos is None or pos >= len(cells):
+        return None
+    value = cells[pos].strip()
+    return value or None
+
+
+def parse_backlog_table(path: Path) -> list[ParsedTask]:
+    """Parse a markdown-table backlog (``| ID | Задача | P | SP | Dep |``)."""
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    tasks: list[ParsedTask] = []
+    columns: dict[str, int] | None = None
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            columns = None
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if columns is None:
+            lowered = [cell.lower() for cell in cells]
+            has_id = any(_table_is_id(cell) for cell in lowered)
+            has_title = any(
+                "задач" in cell or "task" in cell or "title" in cell for cell in lowered
+            )
+            if has_id and has_title:
+                columns = {}
+                for pos, name in enumerate(lowered):
+                    if _table_is_id(name):
+                        columns.setdefault("id", pos)
+                    elif "задач" in name or "task" in name or "title" in name:
+                        columns.setdefault("title", pos)
+                    elif name in ("p", "приоритет", "priority"):
+                        columns.setdefault("priority", pos)
+                    elif name in ("sp", "effort", "оценка", "сторипоинты"):
+                        columns.setdefault("effort", pos)
+                    elif "dep" in name or "зависит" in name:
+                        columns.setdefault("depends_on", pos)
+            continue
+        if all(set(cell) <= {"-", ":", " "} for cell in cells):
+            continue
+        if "id" not in columns or "title" not in columns:
+            continue
+
+        external_id = _table_cell(cells, columns, "id")
+        title = _table_cell(cells, columns, "title")
+        if not external_id or not title:
+            continue
+        effort = _table_cell(cells, columns, "effort")
+        tasks.append(
+            ParsedTask(
+                external_id=external_id.strip("`[] "),
+                title=title[:300],
+                source_path=path,
+                priority=_priority_from(_table_cell(cells, columns, "priority")),
+                estimate_hours=(_normalize_hours(effort, "story points") if effort else None),
+                depends_on=_split_depends(_table_cell(cells, columns, "depends_on")),
+                description=title[:2000],
+                meta={"format": "backlog_table"},
+            )
+        )
+    return tasks
+
+
+def _has_task_section(path: Path) -> bool:
+    """Return True when a file has a Roadmap/TODO/Backlog-like heading."""
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return any(_heading_is_task_like(match.group(2)) for match in _TASK_HEADING.finditer(text))
+
+
 def parse_path(path: Path) -> list[ParsedTask]:
     """Parse a file or directory into normalised tasks."""
 
@@ -460,10 +619,16 @@ def parse_path(path: Path) -> list[ParsedTask]:
         for child in sorted(path.glob("*.md")):
             results.extend(parse_path(child))
         return results
-    if path.name.upper() in SKIP_FILENAMES:
-        return []
     if path.name == "BACKLOG.md" and path.parent.name == "tasks":
         return parse_shared_infra_backlog(path)
+    if path.name.lower() == "readme.md":
+        return parse_task_sections(path)
+    if path.name.lower() == "backlog.md":
+        return parse_backlog_table(path)
+    if path.name.upper() in SKIP_FILENAMES:
+        return []
+    if "ai" in path.parts and "analysis" in path.parts:
+        return parse_task_sections(path)
     text = path.read_text(encoding="utf-8", errors="replace")
     if any("id" in block for block in parse_frontmatter_blocks(text)):
         return parse_frontmatter_file(path)
@@ -474,10 +639,19 @@ def parse_path(path: Path) -> list[ParsedTask]:
 SOURCE_DIRS: tuple[tuple[str, ...], ...] = (
     ("ai", "tasks"),
     ("ai", "backlog"),
+    ("ai", "analysis"),
     ("docs", "backlog"),
     ("docs", "tasks"),
     ("backlog",),
     ("tasks",),
+)
+
+# Standalone files that may hold a backlog or a task index.
+SOURCE_FILES: tuple[tuple[str, ...], ...] = (
+    ("BACKLOG.md",),
+    ("backlog.md",),
+    ("docs", "TASKS.md"),
+    ("TASKS.md",),
 )
 
 IGNORED_SOURCE_SEGMENTS = {
@@ -501,6 +675,8 @@ def _iter_markdown_files(base: Path) -> list[Path]:
             parts = path.parts[:-1]
         if any(part.lower() in IGNORED_SOURCE_SEGMENTS for part in parts):
             continue
+        if path.name.upper() in SKIP_FILENAMES:
+            continue
         files.append(path)
     return files
 
@@ -523,6 +699,18 @@ def discover_sources(root: Path) -> list[Path]:
             for path in _iter_markdown_files(base):
                 add(path)
 
+    for marker in SOURCE_FILES:
+        candidate = root.joinpath(*marker)
+        if candidate.is_file():
+            add(candidate)
+
+    # Only add a README when it actually carries a task-like section,
+    # so navigation READMEs do not flood the backlog.
+    for name in ("README.md", "readme.md"):
+        candidate = root / name
+        if candidate.is_file() and _has_task_section(candidate):
+            add(candidate)
+
     return paths
 
 
@@ -534,9 +722,7 @@ def _relative_ref(path: Path, root: Path, external_id: str) -> str:
     return f"{relative}:{external_id}"
 
 
-def _apply_fields(
-    item: WorkItem, task: ParsedTask, root: Path, now: datetime
-) -> bool:
+def _apply_fields(item: WorkItem, task: ParsedTask, root: Path, now: datetime) -> bool:
     """Update an existing item; return True when anything changed."""
 
     changed = False
@@ -608,11 +794,7 @@ async def import_backlog(
         await create_backup(backup_dir=backup_dir)
 
     existing = list(
-        (
-            await session.execute(
-                select(WorkItem).where(WorkItem.project_id == project.id)
-            )
-        )
+        (await session.execute(select(WorkItem).where(WorkItem.project_id == project.id)))
         .scalars()
         .all()
     )
@@ -702,6 +884,3 @@ async def import_backlog(
         await session.commit()
 
     return report
-
-
-

@@ -13,10 +13,31 @@ from taskhub.repo.projects import upsert_project
 SOURCE_MARKERS: tuple[tuple[str, ...], ...] = (
     ("ai", "tasks"),
     ("ai", "backlog"),
+    ("ai", "analysis"),
     ("docs", "backlog"),
     ("docs", "tasks"),
     ("backlog",),
     ("tasks",),
+)
+
+# Standalone files that mark a directory as a project with a backlog/index.
+SOURCE_FILE_MARKERS: tuple[tuple[str, ...], ...] = (
+    ("BACKLOG.md",),
+    ("backlog.md",),
+    ("docs", "TASKS.md"),
+)
+
+# Folders that hold ledgers / notes even when the project has no task backlog.
+NOTE_SOURCE_MARKERS: tuple[tuple[str, ...], ...] = (
+    ("docs", "ledger"),
+    ("docs", "notes"),
+    ("docs", "sessions"),
+    ("reports", "sessions"),
+)
+
+NOTE_SOURCE_FILES: tuple[tuple[str, ...], ...] = (
+    ("docs", "HANDOFF.md"),
+    ("HANDOFF.md",),
 )
 
 # Directories that hold projects but are not projects themselves.
@@ -57,6 +78,7 @@ class ProjectCandidate:
     name: str
     root_path: Path
     sources: list[str]
+    description: str | None = None
 
 
 @dataclass
@@ -83,11 +105,53 @@ def slugify(value: str) -> str:
 
 
 def _has_sources(directory: Path) -> list[str]:
-    return [
+    found = [
         "/".join(marker)
         for marker in SOURCE_MARKERS
         if directory.joinpath(*marker).is_dir()
     ]
+    found.extend(
+        f"{'/'.join(marker)}"
+        for marker in SOURCE_FILE_MARKERS
+        if directory.joinpath(*marker).is_file()
+    )
+    found.extend(
+        f"{'/'.join(marker)}"
+        for marker in NOTE_SOURCE_MARKERS
+        if directory.joinpath(*marker).is_dir()
+    )
+    found.extend(
+        f"{'/'.join(marker)}"
+        for marker in NOTE_SOURCE_FILES
+        if directory.joinpath(*marker).is_file()
+    )
+    rules = directory / ".clinerules"
+    if rules.is_dir() and any(rules.glob("*ledger*.md")):
+        found.append(".clinerules/*ledger*.md")
+    return found
+
+
+def _readme_description(directory: Path) -> str | None:
+    """Return the first non-trivial paragraph of the project README."""
+
+    for name in ("README.md", "readme.md"):
+        path = directory / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith(("#", ">", "|", "!", "[!"))
+        ]
+        for line in lines:
+            if len(line) >= 20:
+                return line[:500]
+        return None
+    return None
 
 
 def _looks_like_project(directory: Path) -> bool:
@@ -142,6 +206,7 @@ def discover_projects(root: Path, *, max_depth: int = 2) -> list[ProjectCandidat
                 name=directory.name,
                 root_path=resolved,
                 sources=sources,
+                description=_readme_description(directory),
             )
         )
     return sorted(candidates, key=lambda candidate: candidate.slug)
@@ -173,6 +238,7 @@ async def register_projects(
             slug=candidate.slug,
             name=candidate.name,
             root_path=str(candidate.root_path),
+            description=candidate.description,
         )
         if created:
             report.registered += 1
