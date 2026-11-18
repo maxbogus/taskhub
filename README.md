@@ -60,9 +60,47 @@ writing posts (`taskhub export`, MCP `export_notes`). Per-folder source map in
 
 ```bash
 uv sync --extra dev
-uv run taskhub init-db          # create tables without Alembic (quick start)
+uv run taskhub init-db          # create tables at ~/.taskhub/taskhub.db (quick start)
 uv run alembic upgrade head     # or apply migrations (recommended)
 ```
+
+No environment file is required — every setting has a working default (see below).
+
+## Defaults
+
+Zero-config: the app runs with these defaults. Override any setting with the
+`TASKHUB_*` environment variable (or copy `.env.example` to `.env`).
+
+| Setting | Env var | Default |
+|---|---|---|
+| Database | `TASKHUB_DB_URL` | `sqlite+aiosqlite:///$HOME/.taskhub/taskhub.db` |
+| Backup dir | `TASKHUB_BACKUP_DIR` | `$HOME/.taskhub/backups` |
+| Backups to keep | `TASKHUB_BACKUP_KEEP` | `7` (`0` = keep all) |
+| MCP transport | `TASKHUB_TRANSPORT` | `stdio` (`http` = streamable HTTP) |
+| Host | `TASKHUB_HOST` | `127.0.0.1` |
+| MCP port | `TASKHUB_PORT` | `7801` |
+| Web port | `TASKHUB_WEB_PORT` | `8000` |
+| Projects root | `TASKHUB_REPOSITORIES_ROOT` | `$HOME/Repositories` |
+| Memory root | `TASKHUB_MEMORY_ROOT` | `$HOME/.cline/memory` |
+| Sources file | `TASKHUB_SOURCES_FILE` | `src/taskhub/sources.yaml` |
+| Metrics sources | `TASKHUB_METRICS_SOURCES` | `cline` |
+| Claim TTL (min) | `TASKHUB_DEFAULT_CLAIM_TTL_MINUTES` | `30` |
+| Log level | `TASKHUB_LOG_LEVEL` | `INFO` |
+
+## Startup scripts & scenarios
+
+| Scenario | Command | Endpoint |
+|---|---|---|
+| First run | `uv run taskhub init-db` | — |
+| Discover + import tasks | `uv run taskhub register-projects --root ~/Repositories` then `uv run taskhub import-all --dry-run` then `uv run taskhub import-all` | — |
+| Tasks + ledgers/notes | `uv run taskhub import-all --notes` | — |
+| Ledgers/notes only | `uv run taskhub import-notes` | — |
+| MCP server (stdio) | `uv run taskhub-mcp` | stdio |
+| MCP server (HTTP) | `TASKHUB_TRANSPORT=http uv run taskhub-mcp` | `http://127.0.0.1:7801` |
+| Web API + dashboard | `uv run taskhub-web` | `http://127.0.0.1:8000` |
+| Export digest | `uv run taskhub export --project <slug> --format markdown --out out.md` | — |
+| Backup | `uv run taskhub backup --keep 7` | `~/.taskhub/backups` |
+| Docker (web + MCP) | `docker compose up -d --build` | `:8000` (web), `:7801` (MCP) |
 
 ## Collect tasks from all projects
 
@@ -156,17 +194,15 @@ uv run taskhub export --kind insight --since 2026-10-01 --format json --limit 20
 The digest groups notes by project and includes the linked task title/status, so
 it can be fed directly to the text skills to write blog or social posts.
 
-## Run MCP server (stdio)
+## Run MCP server
 
 ```bash
-uv run taskhub-mcp
+uv run taskhub-mcp                                  # stdio (default)
+TASKHUB_TRANSPORT=http uv run taskhub-mcp           # streamable HTTP on :7801
 ```
 
-Streamable HTTP:
-
-```bash
-TASKHUB_TRANSPORT=http TASKHUB_PORT=7801 uv run taskhub-mcp
-```
+Ports: MCP `127.0.0.1:7801` (`TASKHUB_HOST`/`TASKHUB_PORT`), web
+`127.0.0.1:8000` (`TASKHUB_WEB_PORT`).
 
 ## Connect from Claude Code / Cline / Cursor
 
@@ -185,6 +221,28 @@ TASKHUB_TRANSPORT=http TASKHUB_PORT=7801 uv run taskhub-mcp
   }
 }
 ```
+
+`TASKHUB_DB_URL` above matches the built-in default (`~/.taskhub/taskhub.db`),
+so it can be omitted.
+
+## MCP API
+
+Server name `taskhub` (stdio by default, streamable HTTP on `:7801`). In clients
+the tools are prefixed `mcp__taskhub__`.
+
+| Group | Tools |
+|---|---|
+| Tasks | `create_task`, `update_task`, `change_status`, `get_workflow`, `get_context`, `get_next_item`, `list_tasks` |
+| Projects | `list_projects`, `project_status`, `evaluate_project`, `forecast_project` |
+| Import | `register_projects`, `import_backlog`, `import_all_backlogs`, `import_notes` |
+| Notes & docs | `add_note`, `search_notes`, `export_notes`, `upsert_document`, `get_document`, `list_documents` |
+| Templates | `list_templates`, `apply_template`, `import_templates` |
+| Claims | `register_agent`, `claim_task`, `renew_claim`, `release_task`, `list_claims` |
+| Metrics | `ingest_metrics`, `log_activity`, `task_metrics`, `metrics_report` |
+| Ops | `backup_db` |
+
+Resources: `task://{id}`, `task://{id}/context`, `project://{slug}/backlog`,
+`project://{slug}/notes`, `project://{slug}/specs`, `project://{slug}/claims`.
 
 ## Web API and dashboard
 
@@ -234,8 +292,9 @@ src/taskhub/
 
 ## Database
 
-SQLite by default (`sqlite+aiosqlite:///./taskhub.db`), PostgreSQL via
-`TASKHUB_DB_URL`. Migrations are managed by Alembic.
+SQLite by default at `~/.taskhub/taskhub.db` (created by `init-db`). Override with
+`TASKHUB_DB_URL`, or point it at PostgreSQL (`postgresql+asyncpg://…`). Migrations
+are managed by Alembic.
 
 ## Deployment (Docker)
 

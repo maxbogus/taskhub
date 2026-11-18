@@ -6,6 +6,9 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_DEFAULT_DATA_DIR = Path.home() / ".taskhub"
+_DEFAULT_DB_URL = f"sqlite+aiosqlite:///{_DEFAULT_DATA_DIR / 'taskhub.db'}"
+
 
 class Settings(BaseSettings):
     """Runtime configuration for TaskHub."""
@@ -17,13 +20,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    db_url: str = "sqlite+aiosqlite:///./taskhub.db"
+    db_url: str = _DEFAULT_DB_URL
     transport: str = "stdio"
     host: str = "127.0.0.1"
     port: int = 7801
     web_port: int = 8000
     token: str | None = None
-    backup_dir: Path = Path("./backups")
+    backup_dir: Path = _DEFAULT_DATA_DIR / "backups"
     backup_keep: int = 7
     repositories_root: Path = Path.home() / "Repositories"
     sources_file: Path | None = None
