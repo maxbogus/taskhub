@@ -1,7 +1,7 @@
 # TaskHub — developer entry points. Run `make` or `make help`.
 
 .DEFAULT_GOAL := help
-.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock
+.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock eval-agent eval-seed
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## / — /' | sed 's/^/  make /'
@@ -98,3 +98,13 @@ eval: ## Run the MCP contract cases against the real MCP server
 	@mkdir -p docs/evaluation
 	@./node_modules/.bin/promptfoo eval -c eval/promptfooconfig.yaml --no-cache --no-progress-bar -o docs/evaluation/eval-mcp.json 2>&1 | tail -12
 	@uv run python scripts/summarize_eval.py docs/evaluation/eval-mcp.json
+
+# Layer 3 drives the real MCP tools with a local model. It needs Ollama,
+# so it is not part of CI — the pytest contract marks it `slow`.
+EVAL_MODEL ?= qwen2.5:7b-instruct-q4_K_M
+eval-seed: ## Seed the eval database with the demo project
+	@uv run python scripts/eval_seed.py
+
+eval-agent: ## Run the agentic scenarios against the real MCP tools (needs Ollama)
+	@uv run python scripts/eval_seed.py
+	@uv run python scripts/agent_eval.py --model $(EVAL_MODEL)

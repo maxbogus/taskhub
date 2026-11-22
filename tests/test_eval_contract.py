@@ -12,6 +12,7 @@ they belong in CI.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -108,3 +109,89 @@ async def test_economics_tools_are_registered() -> None:
         "close_model_price",
         "set_project_economics",
     } <= names
+
+
+# ---------------------------------------------------------------------------
+# Agentic layer (M12): a live model drives the real MCP tools.
+# ---------------------------------------------------------------------------
+
+AGENT_SCENARIOS_FILE = (
+    Path(__file__).resolve().parent.parent / "eval" / "cases" / "agent_scenarios.jsonl"
+)
+
+#: Scenarios the local model is known to fail.
+#:
+#: A small local model is not deterministic enough to be a gate, so its
+#: failures are recorded rather than hidden. The convention is the
+#: hh-matcher one used by the donor harnesses: an unexpected **success**
+#: turns into an XPASS error, which is the signal to revisit this list
+#: instead of quietly dropping the check.
+KNOWN_MODEL_FAILURES: set[str] = set()
+
+
+def load_agent_scenarios() -> list[dict[str, Any]]:
+    """Load the agentic scenarios."""
+    if not AGENT_SCENARIOS_FILE.is_file():
+        return []
+    return [
+        json.loads(line)
+        for line in AGENT_SCENARIOS_FILE.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def test_agent_scenarios_are_present() -> None:
+    """The agentic scenario set must not be empty."""
+    assert load_agent_scenarios(), f"no agent scenarios found in {AGENT_SCENARIOS_FILE}"
+
+
+def test_agent_scenarios_use_allowed_tools_only() -> None:
+    """A scenario may only expect tools the agentic runner exposes."""
+    from scripts.agent_eval import ALLOWED_TOOLS
+
+    for scenario in load_agent_scenarios():
+        for tool in scenario.get("expect_tools", []):
+            assert tool in ALLOWED_TOOLS, f"{scenario['id']} expects unknown tool {tool}"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "scenario",
+    load_agent_scenarios(),
+    ids=[s["id"] for s in load_agent_scenarios()],
+)
+async def test_agent_scenario(scenario: dict[str, Any], tmp_path: Path, monkeypatch) -> None:
+    """Run one scenario against the local model and the real MCP server.
+
+    Marked ``slow``: it needs Ollama and takes tens of seconds. It is not
+    part of CI; run it with ``make eval-agent``.
+
+    The test seeds its own database, so it does not depend on the
+    contract fixture (which creates an empty one).
+    """
+    from scripts.agent_eval import run_scenario, tool_schemas
+    from scripts.eval_seed import seed_demo
+
+    db_file = tmp_path / "agent-eval.db"
+    monkeypatch.setenv("TASKHUB_DB_URL", f"sqlite+aiosqlite:///{db_file}")
+    from taskhub.db import dispose_engine, init_db, session_scope
+
+    await dispose_engine()
+    await init_db()
+    async with session_scope() as session:
+        await seed_demo(session)
+
+    model = os.environ.get("TASKHUB_EVAL_MODEL", "qwen2.5:7b-instruct-q4_K_M")
+    schemas = await tool_schemas()
+    verdict = await run_scenario(scenario, model, schemas)
+    await dispose_engine()
+
+    if scenario["id"] in KNOWN_MODEL_FAILURES:
+        if verdict["passed"]:
+            pytest.xfail(f"{scenario['id']} unexpectedly passed — revisit the list")
+        return
+
+    assert verdict["passed"], (
+        f"{scenario['id']} failed: {verdict['problems']} "
+        f"(tools: {verdict['tools_called']}, answer: {verdict['answer'][:200]!r})"
+    )
