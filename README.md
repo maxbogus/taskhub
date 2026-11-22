@@ -6,7 +6,7 @@ Replaces scattered file backlogs (`*/ai/tasks/`, `*/docs/backlog/`,
 with one database and one workflow. Which files are collected is declared in
 `sources.yaml`; the per-folder map is `docs/COLLECTION_MAP.md`.
 
-## Status (M1–M10)
+## Status (M1–M11)
 
 M1: database schema, Alembic migrations, FastMCP server, scope resolution by
 `cwd`, tools `create_task`, `get_context`, `get_next_item`, `list_projects`.
@@ -37,11 +37,19 @@ M7: TTL claim leases — `register_agent`, `claim_task`/`renew_claim`/`release_t
 never block work.
 
 M8: FastAPI REST API (`/api/projects`, `/api/projects/{slug}/status|items|documents|claims`,
-`/api/tasks/{id}`, `/api/metrics`) and a single-page dashboard served at `/`;
+`/api/tasks/{id}`, `/api/metrics`, `/api/economics`, `/api/economics/summary`,
+`/api/economics/series`) and a single-page dashboard served at `/`;
 `taskhub-web` entry point.
 
 M9: Docker deployment (multi-stage, non-root, healthchecks) and backup retention —
 `taskhub backup --keep N`, `backup_keep` setting, `backup_db(keep=...)`.
+
+M11: agent economics — model price list (`prices.yaml` + `model_price`
+table), token cost estimation, project rates, money-scale EVM, burn-rate
+series, MCP tools `economics_report`/`economics_summary`/`cost_series`/
+`list_prices`/`sync_prices`/`set_model_price`/`close_model_price`/
+`set_project_economics`, REST `/api/economics*`, CLI `taskhub prices` and
+`taskhub economics`, and a cost panel in the dashboard.
 
 M10: ledger/notes collection and post export — `services/note_importer.py`
 imports `docs/ledger/*.jsonl`, `docs/HANDOFF.md`, `docs/notes/`,
@@ -89,6 +97,10 @@ Zero-config: the app runs with these defaults. Override any setting with the
 | Metrics sources | `TASKHUB_METRICS_SOURCES` | `cline` |
 | Claim TTL (min) | `TASKHUB_DEFAULT_CLAIM_TTL_MINUTES` | `30` |
 | Log level | `TASKHUB_LOG_LEVEL` | `INFO` |
+| Prices file | `TASKHUB_PRICES_FILE` | `src/taskhub/prices.yaml` |
+| Human rate (USD/h) | `TASKHUB_HUMAN_RATE_USD_PER_HOUR` | `50` (placeholder) |
+| Error cost (USD) | `TASKHUB_ERROR_COST_USD` | `0` (errors not billed) |
+| Supervision cost (USD) | `TASKHUB_SUPERVISION_COST_USD` | `0` (not measured) |
 
 ## Startup scripts & scenarios
 
@@ -104,6 +116,9 @@ Zero-config: the app runs with these defaults. Override any setting with the
 | Web API + dashboard | `uv run taskhub-web` | `http://127.0.0.1:8000` |
 | Export digest | `uv run taskhub export --project <slug> --format markdown --out out.md` | — |
 | Backup | `uv run taskhub backup --keep 7` | `$TASKHUB_HOME/backups` |
+| Model prices | `uv run taskhub prices list` | — |
+| Sync prices | `uv run taskhub prices sync --no-dry-run` | — |
+| Agent economics | `uv run taskhub economics --project <slug>` | — |
 | Docker (web + MCP) | `docker compose up -d --build` | `:8000` (web), `:7801` (MCP) |
 
 ## Collect tasks from all projects
@@ -260,6 +275,19 @@ the tools are prefixed `mcp__taskhub__`.
 Resources: `task://{id}`, `task://{id}/context`, `project://{slug}/backlog`,
 `project://{slug}/notes`, `project://{slug}/specs`, `project://{slug}/claims`.
 
+### Agent economics tools
+
+| Tool | Purpose |
+|---|---|
+| `economics_report` | Money view grouped by model/agent/task/project |
+| `economics_summary` | Totals, human baseline, savings, ROI, `progress_money` |
+| `cost_series` | Burn-rate series (`day`/`week`/`month`) |
+| `list_prices` | Known prices (database first, then `prices.yaml`) |
+| `sync_prices` | Apply the price list (dry run by default) |
+| `set_model_price` | Create or update a price (never deletes) |
+| `close_model_price` | Close a price by setting its end date |
+| `set_project_economics` | Set the human rate, error price and supervision cost |
+
 ## Web API and dashboard
 
 ```bash
@@ -277,7 +305,10 @@ uv run taskhub-web          # FastAPI + dashboard on http://127.0.0.1:8000
 | `GET /api/claims` | Active claims across projects |
 | `GET /api/tasks/{id}` | Task context |
 | `GET /api/metrics?project=&group_by=` | Aggregated metrics |
-| `GET /` | Single-page dashboard |
+| `GET /api/economics?project=&group_by=` | Money view of the agent usage |
+| `GET /api/economics/summary?project=` | Totals, baseline, savings, ROI |
+| `GET /api/economics/series?project=&bucket=` | Burn-rate series |
+| `GET /` | Single-page dashboard (with the cost panel) |
 
 ## Architecture
 
@@ -285,7 +316,8 @@ uv run taskhub-web          # FastAPI + dashboard on http://127.0.0.1:8000
 taskhub-mcp   — MCP server (stdio / streamable HTTP :7801)
 taskhub-web   — FastAPI REST + dashboard (:8000)
 taskhub       — CLI: init-db, list-projects, mcp-config, register-projects,
-                import-all, import-notes, import-templates, export, backup
+                import-all, import-notes, import-templates, export, backup,
+                prices list|sync, economics
 ```
 
 Processes over one database. Layout:
@@ -300,7 +332,9 @@ src/taskhub/
   services/       scope, prioritizer, gates, claims, documents, templates,
                   evm, forecast, metrics, evaluation, backlog_importer,
                   note_importer (ledgers/notes/memory), export (post digest),
-                  backup, metric_ingest
+                  backup, metric_ingest,
+                  cost_estimator, economics, price_store
+  prices.py       declarative model price list (prices.yaml)
   mcp/            FastMCP server, tools, resources
   api/            FastAPI REST + dashboard (static/index.html)
   cli.py          small human CLI
@@ -311,6 +345,83 @@ src/taskhub/
 SQLite by default at `$TASKHUB_HOME/taskhub.db` (created by `init-db`). Override
 with `TASKHUB_DB_URL`, or point it at PostgreSQL (`postgresql+asyncpg://…`).
 Migrations are managed by Alembic.
+
+## Agent economics (M11)
+
+The economics layer answers two questions: **what did the agents cost?**
+and **was that cheaper than doing it by hand?**
+
+### Where the numbers come from
+
+| Part | Source |
+|---|---|
+| Token cost | Recomputed from the price list (`src/taskhub/prices.yaml` → `model_price` table) |
+| Reported cost | `Metric.cost_usd` as written by the tool — kept **separate** from the estimate |
+| Error cost | `failures × TASKHUB_ERROR_COST_USD` (default `0`) |
+| Supervision cost | Flat `TASKHUB_SUPERVISION_COST_USD` per project (default `0`) |
+| Human baseline | `estimate_hours × human rate` — what the same work would cost a person |
+
+Rates come from `TASKHUB_HUMAN_RATE_USD_PER_HOUR` (default `50`, a
+**placeholder**) and can be overridden per project:
+
+```json
+{"config": {"economics": {"human_rate_usd_per_hour": 75, "error_cost_usd": 40}}}
+```
+
+### Two rules that keep the numbers honest
+
+1. **An unpriced model costs nothing *and is reported*.** `token_cost_usd`
+   is `null`, the model lands in `unpriced_models`, and
+   `unpriced_token_share` shows how much of the work is unaccounted for.
+   Pricing unknown models at zero would silently understate the cost.
+2. **Reported and estimated cost never overwrite each other.** Both are
+   in every report, so a discrepancy with vendor billing stays visible.
+
+### Prices
+
+Prices live in `src/taskhub/prices.yaml` (declarative, override with
+`TASKHUB_PRICES_FILE`) and are stored as **micro-USD per 1M tokens** —
+integers, because the project forbids floats in monetary arithmetic and
+SQLite cannot store `Decimal` natively.
+
+```yaml
+prices:
+  - pattern: "claude-*"      # glob over Metric.model
+    provider: anthropic
+    input_usd_per_mtok: 3.0
+    output_usd_per_mtok: 15.0
+    valid_from: "2026-01-01T00:00:00"
+```
+
+The most specific pattern wins (exact name over glob); a closed price
+(`valid_to`) stops applying but is never deleted.
+
+```bash
+uv run taskhub prices list            # database + bundled list
+uv run taskhub prices sync             # dry run (default)
+uv run taskhub prices sync --no-dry-run
+```
+
+### Money EVM
+
+`project_status` and `evaluate_project` carry `progress_money` next to the
+hourly `progress`. It is **not** the classic CPI: earned value is the
+human baseline while actual cost is the real agent spend, so the index
+answers *build-vs-buy*, not "are we inside the budget".
+
+### Eval of the MCP tool contract
+
+The MCP surface is covered by three layers, all deterministic:
+
+| Layer | What runs | Command |
+|---|---|---|
+| 1 — pytest contract | Every case as a real `call_tool` invocation | `uv run pytest tests/test_eval_contract.py` |
+| 2a — deterministic replay | promptfoo `exec:` provider, no model, no server | `make eval-mock` |
+| 2b — real MCP calls | promptfoo `mcp` provider launches the TaskHub server | `make eval` |
+
+The cases live in `eval/cases/tool_contract.jsonl` (single source of
+truth); `scripts/build_promptfoo_cases.py` converts them for promptfoo.
+Layer 2b needs `npm install` once (promptfoo is a dev dependency).
 
 ## Deployment (Docker)
 
@@ -358,7 +469,8 @@ export, backup, mcp, web, docker-up/down.
 
 ## Milestones
 
-All planned milestones M1–M10 are complete. Suggested follow-ups: SQLite FTS5 for
-note search, note filtering in the dashboard, a `portfolio` pseudo-project for
-root-level indexes, partitioned metrics for PostgreSQL, and auth in front of the
-dashboard.
+All planned milestones M1–M11 are complete. Suggested follow-ups: an
+agentic eval layer on a live model (M12), ruble conversion for the money
+view, SQLite FTS5 for note search, note filtering in the dashboard, a
+`portfolio` pseudo-project for root-level indexes, partitioned metrics for
+PostgreSQL, and auth in front of the dashboard.

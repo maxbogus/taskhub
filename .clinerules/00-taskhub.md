@@ -19,6 +19,10 @@ The database (`TASKHUB_DB_URL`, default `$TASKHUB_HOME/taskhub.db`, where
 - `src/taskhub/services/backlog_importer.py` — task parsing functions.
 - `src/taskhub/services/note_importer.py` — ledgers/notes/handoffs/memory.
 - `src/taskhub/services/export.py` — markdown/JSON digest for posts.
+- `src/taskhub/prices.py` + `prices.yaml` — декларативный прайс-лист моделей.
+- `src/taskhub/services/cost_estimator.py` — оценка себестоимости токенов (Decimal).
+- `src/taskhub/services/economics.py` — отчёты, burn-rate, EVM в деньгах.
+- `src/taskhub/services/price_store.py` — запись цен и ставок (архив, не удаление).
 - `src/taskhub/services/projects.py` — project discovery + README description.
 - `docs/COLLECTION_MAP.md` — which folders are imported and where to look.
 
@@ -44,6 +48,10 @@ uv run pytest
 uv run ruff check .
 uv run mypy
 ```
+
+Eval-слой MCP-контракта: слой 1 (`tests/test_eval_contract.py`) идёт
+вместе с тестами; слои 2a/2b — `make eval-mock` / `make eval`
+(нужен `npm install` для promptfoo).
 
 All three must pass before a change is considered done. New parsers/importers
 require regression tests (`tests/test_note_importer.py`, `tests/test_export.py`,

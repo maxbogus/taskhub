@@ -29,9 +29,7 @@ async def client(tmp_path: Path) -> AsyncClient:
     await dispose_engine()
     await init_db()
     async with session_scope() as session:
-        await create_project(
-            session, slug="demo", name="Demo", root_path="/tmp/demo"
-        )
+        await create_project(session, slug="demo", name="Demo", root_path="/tmp/demo")
         await session.commit()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

@@ -33,7 +33,9 @@ src/taskhub/
                   (versioned upsert), templates (import/apply), evm (Decimal),
                   forecast (Monte Carlo), metrics, evaluation, backlog_importer,
                   note_importer (ledgers/notes/memory), export (post digest),
-                  backup (retention), metric_ingest
+                  backup (retention), metric_ingest,
+                  cost_estimator, economics, price_store
+  prices.py       declarative model price list (prices.yaml) → micro-USD
   mcp/            server.py (FastMCP), tools.py, resources.py
   api/            main.py (FastAPI REST + dashboard), static/index.html
   cli.py          `taskhub init-db|list-projects|mcp-config|import-templates|backup`
@@ -53,6 +55,9 @@ uv run taskhub import-all                                # bulk backlog import
 uv run taskhub import-all --notes                        # tasks + ledgers/notes
 uv run taskhub import-notes                              # ledgers/notes/memory only
 uv run taskhub export --format markdown --out out.md     # notes digest for posts
+uv run taskhub prices list                                # model prices
+uv run taskhub prices sync --no-dry-run                   # apply the price list
+uv run taskhub economics --project <slug>                 # what the agents cost
 uv run taskhub-mcp                       # stdio MCP
 TASKHUB_TRANSPORT=http uv run taskhub-mcp
 uv run taskhub-web                       # REST + dashboard (:8000)
@@ -62,7 +67,11 @@ docker compose up -d --build             # web + MCP
 uv run pytest
 uv run ruff check
 uv run mypy
+make eval        # MCP tool contract against the real MCP server (needs npm install)
 ```
+
+`make eval` needs promptfoo (`npm install`); the pytest contract
+(`tests/test_eval_contract.py`) covers the same cases and needs nothing.
 
 ## Key conventions
 
@@ -72,6 +81,22 @@ uv run mypy
 - `WorkItem.due_at` drives EVM planned value and lead time.
 - Claim = TTL lease; expired claims do not block work.
 - Compact responses by default; full texts via MCP resources.
+
+## Agent economics (M11)
+
+- Prices are declarative (`prices.yaml`) and stored as **micro-USD per 1M
+  tokens** (integers): no floats in money, `Decimal` never touches SQLite.
+- Price resolution: database row → `prices.yaml` → unpriced. An unpriced
+  model yields **no** cost and is listed in `unpriced_models` — never
+  priced at zero.
+- A price is **closed** (`valid_to`), never deleted; the key is
+  `(pattern, valid_from)`.
+- Reported (`Metric.cost_usd`) and estimated token cost are separate
+  fields and never overwrite each other.
+- `progress_money` is a build-vs-buy index (EV = human baseline, AC =
+  real spend), **not** the classic CPI; the hourly EVM stays untouched.
+- Project rates live in `Project.config["economics"]` and override the
+  `TASKHUB_*` settings.
 
 ## Notes, ledgers and export
 
