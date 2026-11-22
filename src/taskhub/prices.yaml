@@ -1,0 +1,63 @@
+# TaskHub — прайс-лист моделей (M11).
+#
+# Формат повторяет sources.yaml: декларативный файл, который читает
+# src/taskhub/prices.py. Переопределяется через TASKHUB_PRICES_FILE.
+#
+# Цены указаны за 1M токенов (как публикуют вендоры) и хранятся как
+# микро-USD (1 USD = 1 000 000) — целое число, поэтому арифметика
+# не плывёт ни на SQLite, ни на PostgreSQL.
+#
+# ВАЖНО: цены меняются. Перед использованием сверяйтесь с прайсом вендора
+# и правьте valid_from устаревших строк — история цен нужна, чтобы
+# пересчитывать метрики по цене, действовавшей на момент записи.
+#
+# Шаблон "*" (fallback) намеренно НЕ включён: он сделал бы цену любой
+# неизвестной модели нулевой и тихо занизил бы себестоимость. Модель без
+# цены помечается как unpriced — это честнее, чем выдуманный ноль.
+# Добавьте "*" сами, только если вам это нужно осознанно.
+
+defaults:
+  currency: USD
+  unit: usd_per_mtok
+
+prices:
+  # Локальные модели: токены бесплатны, но электричество не учтено.
+  # Если это не так — поставьте свою цену или оставьте модель без цены.
+  - pattern: "ollama/*"
+    provider: local
+    input_usd_per_mtok: 0.0
+    output_usd_per_mtok: 0.0
+    cache_read_usd_per_mtok: 0.0
+    cache_write_usd_per_mtok: 0.0
+
+  - pattern: "claude-opus-*"
+    provider: anthropic
+    input_usd_per_mtok: 15.0
+    output_usd_per_mtok: 75.0
+    cache_read_usd_per_mtok: 1.5
+    cache_write_usd_per_mtok: 18.75
+    valid_from: "2026-01-01T00:00:00"
+
+  - pattern: "claude-*"
+    provider: anthropic
+    input_usd_per_mtok: 3.0
+    output_usd_per_mtok: 15.0
+    cache_read_usd_per_mtok: 0.3
+    cache_write_usd_per_mtok: 3.75
+    valid_from: "2026-01-01T00:00:00"
+
+  - pattern: "gpt-5*"
+    provider: openai
+    input_usd_per_mtok: 1.25
+    output_usd_per_mtok: 10.0
+    cache_read_usd_per_mtok: 0.125
+    cache_write_usd_per_mtok: 0.0
+    valid_from: "2026-01-01T00:00:00"
+
+  - pattern: "gpt-4o*"
+    provider: openai
+    input_usd_per_mtok: 2.5
+    output_usd_per_mtok: 10.0
+    cache_read_usd_per_mtok: 1.25
+    cache_write_usd_per_mtok: 0.0
+    valid_from: "2026-01-01T00:00:00"

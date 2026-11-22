@@ -23,6 +23,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from taskhub.prices import PriceSpec
+
 JsonType = JSON().with_variant(JSONB(), "postgresql")
 
 
@@ -157,15 +159,11 @@ class WorkItem(Base):
     project_id: Mapped[str] = mapped_column(
         ForeignKey("project.id", ondelete="CASCADE"), index=True
     )
-    instance_id: Mapped[str | None] = mapped_column(
-        ForeignKey("instance.id"), nullable=True
-    )
+    instance_id: Mapped[str | None] = mapped_column(ForeignKey("instance.id"), nullable=True)
     parent_id: Mapped[str | None] = mapped_column(
         ForeignKey("work_item.id"), nullable=True, index=True
     )
-    type: Mapped[WorkItemType] = mapped_column(
-        _enum(WorkItemType), default=WorkItemType.task
-    )
+    type: Mapped[WorkItemType] = mapped_column(_enum(WorkItemType), default=WorkItemType.task)
     title: Mapped[str] = mapped_column(String(512))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[WorkStatus] = mapped_column(
@@ -180,9 +178,7 @@ class WorkItem(Base):
     external_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     meta: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -226,22 +222,14 @@ class Dependency(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    from_id: Mapped[str] = mapped_column(
-        ForeignKey("work_item.id", ondelete="CASCADE"), index=True
-    )
-    to_id: Mapped[str] = mapped_column(
-        ForeignKey("work_item.id", ondelete="CASCADE"), index=True
-    )
+    from_id: Mapped[str] = mapped_column(ForeignKey("work_item.id", ondelete="CASCADE"), index=True)
+    to_id: Mapped[str] = mapped_column(ForeignKey("work_item.id", ondelete="CASCADE"), index=True)
     type: Mapped[DependencyType] = mapped_column(
         _enum(DependencyType), default=DependencyType.blocked_by
     )
 
-    from_item: Mapped[WorkItem] = relationship(
-        foreign_keys=[from_id], back_populates="outgoing"
-    )
-    to_item: Mapped[WorkItem] = relationship(
-        foreign_keys=[to_id], back_populates="incoming"
-    )
+    from_item: Mapped[WorkItem] = relationship(foreign_keys=[from_id], back_populates="outgoing")
+    to_item: Mapped[WorkItem] = relationship(foreign_keys=[to_id], back_populates="incoming")
 
 
 class Note(Base):
@@ -259,9 +247,7 @@ class Note(Base):
     work_item_id: Mapped[str | None] = mapped_column(
         ForeignKey("work_item.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    kind: Mapped[NoteKind] = mapped_column(
-        _enum(NoteKind), default=NoteKind.comment
-    )
+    kind: Mapped[NoteKind] = mapped_column(_enum(NoteKind), default=NoteKind.comment)
     content: Mapped[str] = mapped_column(Text)
     author: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # Stable key of the imported source entry, e.g.
@@ -276,9 +262,7 @@ class Note(Base):
 
 class Document(Base):
     __tablename__ = "document"
-    __table_args__ = (
-        UniqueConstraint("project_id", "type", "slug", name="uq_document"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "type", "slug", name="uq_document"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     project_id: Mapped[str] = mapped_column(
@@ -336,6 +320,48 @@ class Claim(Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class ModelPrice(Base):
+    """Price of one model, valid over a time window (M11).
+
+    Rates are stored as **micro-USD per 1M tokens** (integers): the
+    project forbids floats in monetary arithmetic and SQLite cannot
+    store ``Decimal`` natively. ``pattern`` is a glob matched against
+    ``Metric.model``; the more specific pattern wins.
+    """
+
+    __tablename__ = "model_price"
+    __table_args__ = (
+        UniqueConstraint("pattern", "valid_from", name="uq_model_price_pattern_valid_from"),
+        Index("ix_model_price_pattern", "pattern"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    pattern: Mapped[str] = mapped_column(String(255))
+    provider: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    input_usd_micro: Mapped[int] = mapped_column(Integer, default=0)
+    output_usd_micro: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_usd_micro: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_usd_micro: Mapped[int] = mapped_column(Integer, default=0)
+    valid_from: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    def to_spec(self) -> PriceSpec:
+        """Return this row as a price spec for the estimator."""
+        return PriceSpec(
+            pattern=self.pattern,
+            provider=self.provider,
+            currency=self.currency,
+            input_usd_micro=self.input_usd_micro,
+            output_usd_micro=self.output_usd_micro,
+            cache_read_usd_micro=self.cache_read_usd_micro,
+            cache_write_usd_micro=self.cache_write_usd_micro,
+            valid_from=self.valid_from,
+            valid_to=self.valid_to,
+        )
+
+
 class Session(Base):
     __tablename__ = "session"
 
@@ -346,15 +372,11 @@ class Session(Base):
     work_item_id: Mapped[str | None] = mapped_column(
         ForeignKey("work_item.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    agent_id: Mapped[str | None] = mapped_column(
-        ForeignKey("agent.id"), nullable=True
-    )
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent.id"), nullable=True)
     source: Mapped[SessionSource] = mapped_column(
         _enum(SessionSource), default=SessionSource.manual
     )
-    external_id: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, index=True
-    )
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     model: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

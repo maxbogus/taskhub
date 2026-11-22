@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     metrics_sources: str = "cline"
     log_level: str = "INFO"
     default_claim_ttl_minutes: int = 30
+    prices_file: Path | None = None
+    human_rate_usd_per_hour: float = 50.0
+    error_cost_usd: float = 0.0
+    supervision_cost_usd: float = 0.0
 
     @model_validator(mode="before")
     @classmethod
