@@ -16,6 +16,7 @@ from taskhub.models import (
     Claim,
     DocType,
     Document,
+    ModelPrice,
     Note,
     NoteKind,
     Project,
@@ -55,6 +56,18 @@ from taskhub.services.claims import (
 )
 from taskhub.services.collect import import_all as import_all_service
 from taskhub.services.documents import upsert_document as upsert_document_service
+from taskhub.services.economics import (
+    cost_series as cost_series_service,
+)
+from taskhub.services.economics import (
+    economics_report as economics_report_service,
+)
+from taskhub.services.economics import (
+    economics_summary as economics_summary_service,
+)
+from taskhub.services.economics import (
+    load_price_specs,
+)
 from taskhub.services.evaluation import evaluate_project as evaluate_project_service
 from taskhub.services.export import export_notes as export_notes_service
 from taskhub.services.gates import (
@@ -80,6 +93,21 @@ from taskhub.services.metric_ingest import (
     task_metrics as task_metrics_service,
 )
 from taskhub.services.note_importer import import_all_notes as import_all_notes_service
+from taskhub.services.price_store import (
+    add_audit_note,
+)
+from taskhub.services.price_store import (
+    close_price as close_price_service,
+)
+from taskhub.services.price_store import (
+    set_price as set_price_service,
+)
+from taskhub.services.price_store import (
+    set_project_rates as set_project_rates_service,
+)
+from taskhub.services.price_store import (
+    sync_prices as sync_prices_service,
+)
 from taskhub.services.projects import register_projects as register_projects_service
 from taskhub.services.scope import resolve_scope
 from taskhub.services.templates import (
@@ -984,4 +1012,168 @@ async def export_notes(
                 "since": since,
             },
             "content": text,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Agent economics (M11)
+# ---------------------------------------------------------------------------
+
+
+async def economics_report(
+    project_slug: str | None = None,
+    group_by: str = "model",
+    since: str | None = None,
+) -> list[dict[str, Any]]:
+    """Money view of the agent usage, grouped by model/agent/task/project."""
+
+    async with session_scope() as session:
+        return await economics_report_service(
+            session,
+            project_slug=project_slug,
+            group_by=group_by,
+            since=_parse_dt(since),
+        )
+
+
+async def economics_summary(project_slug: str) -> dict[str, Any]:
+    """Totals, human baseline, savings, ROI and the money-scale EVM."""
+
+    async with session_scope() as session:
+        return await economics_summary_service(session, project_slug=project_slug)
+
+
+async def cost_series(
+    project_slug: str | None = None,
+    bucket: str = "day",
+    since: str | None = None,
+) -> dict[str, Any]:
+    """Burn-rate series of the agent spend (day/week/month buckets)."""
+
+    async with session_scope() as session:
+        return await cost_series_service(
+            session,
+            project_slug=project_slug,
+            bucket=bucket,
+            since=_parse_dt(since),
+        )
+
+
+async def list_prices(model: str | None = None) -> list[dict[str, Any]]:
+    """Known model prices (database first, then the bundled price list)."""
+
+    async with session_scope() as session:
+        db_patterns = {
+            row.pattern for row in (await session.execute(select(ModelPrice))).scalars().all()
+        }
+        specs = await load_price_specs(session)
+    if model:
+        needle = model.strip().lower()
+        specs = [spec for spec in specs if needle in spec.pattern.lower()]
+    return [
+        {**spec.to_dict(), "source": "db" if spec.pattern in db_patterns else "yaml"}
+        for spec in specs
+    ]
+
+
+async def sync_prices(dry_run: bool = True) -> dict[str, Any]:
+    """Apply the declarative price list to the database (dry run by default)."""
+
+    from taskhub.prices import load_prices
+
+    async with session_scope() as session:
+        specs = load_prices().to_specs()
+        report = await sync_prices_service(session, specs, dry_run=dry_run)
+        if not dry_run:
+            await session.commit()
+    payload = report.to_dict()
+    payload["dry_run"] = dry_run
+    return payload
+
+
+async def set_model_price(
+    pattern: str,
+    input_usd_per_mtok: float = 0.0,
+    output_usd_per_mtok: float = 0.0,
+    cache_read_usd_per_mtok: float = 0.0,
+    cache_write_usd_per_mtok: float = 0.0,
+    provider: str | None = None,
+    currency: str = "USD",
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+) -> dict[str, Any]:
+    """Create or update the price of a model pattern (never deletes)."""
+
+    start = _parse_dt(valid_from)
+    end = _parse_dt(valid_to)
+    async with session_scope() as session:
+        result = await set_price_service(
+            session,
+            pattern=pattern,
+            input_usd_per_mtok=input_usd_per_mtok,
+            output_usd_per_mtok=output_usd_per_mtok,
+            cache_read_usd_per_mtok=cache_read_usd_per_mtok,
+            cache_write_usd_per_mtok=cache_write_usd_per_mtok,
+            provider=provider,
+            currency=currency,
+            valid_from=start,
+            valid_to=end,
+        )
+        await session.commit()
+        return {
+            "pattern": result.price.pattern,
+            "created": result.created,
+            "source": "db",
+            **result.price.to_spec().to_dict(),
+        }
+
+
+async def close_model_price(pattern: str, valid_from: str) -> dict[str, Any]:
+    """Close a price by setting its end date; the row is kept."""
+
+    start = _parse_dt(valid_from)
+    if start is None:
+        raise ValueError("valid_from is required to close a price")
+    async with session_scope() as session:
+        row = await close_price_service(session, pattern=pattern, valid_from=start)
+        await session.commit()
+        return {
+            "pattern": row.pattern,
+            "closed": True,
+            "source": "db",
+            **row.to_spec().to_dict(),
+        }
+
+
+async def set_project_economics(
+    project_slug: str,
+    human_rate_usd_per_hour: float | None = None,
+    error_cost_usd: float | None = None,
+    supervision_cost_usd: float | None = None,
+) -> dict[str, Any]:
+    """Set the money rates of a project (human rate, error price, supervision)."""
+
+    async with session_scope() as session:
+        project = await get_project_by_slug(session, project_slug)
+        if project is None:
+            raise ValueError(f"project '{project_slug}' not found")
+        rates = await set_project_rates_service(
+            session,
+            project,
+            human_rate_usd_per_hour=human_rate_usd_per_hour,
+            error_cost_usd=error_cost_usd,
+            supervision_cost_usd=supervision_cost_usd,
+        )
+        await add_audit_note(
+            session,
+            project_id=project.id,
+            content=f"economics rates updated: {rates}",
+            meta={"tool": "set_project_economics", "rates": rates},
+        )
+        await session.commit()
+        return {
+            "project": project.slug,
+            "human_rate_usd_per_hour": rates.get("human_rate_usd_per_hour"),
+            "error_cost_usd": rates.get("error_cost_usd"),
+            "supervision_cost_usd": rates.get("supervision_cost_usd"),
         }
