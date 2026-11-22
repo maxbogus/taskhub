@@ -62,6 +62,18 @@ async def test_dashboard_served(client: AsyncClient) -> None:
     assert "TaskHub" in response.text
 
 
+async def test_dashboard_has_cost_panel(client: AsyncClient) -> None:
+    """The dashboard renders the cost panel and escapes external values."""
+    response = await client.get("/")
+
+    body = response.text
+    assert "renderCost" in body
+    assert "/api/economics/summary" in body
+    assert "/api/economics/series" in body
+    # Model names come from the database and must be escaped.
+    assert "const esc =" in body
+
+
 async def test_projects_and_items(client: AsyncClient) -> None:
     projects = await client.get("/api/projects")
     assert projects.status_code == 200
