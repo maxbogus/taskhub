@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 from taskhub.config import get_settings
 from taskhub.db import dispose_engine, init_db
@@ -30,6 +30,60 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="TaskHub API", version="0.1.0", lifespan=lifespan)
+
+#: Paths that stay reachable without a token.
+#:
+#: The liveness probe must stay open: a health check that needs a token
+#: cannot be used by Docker or by a load balancer.
+OPEN_PATHS = frozenset({"/healthz", "/docs", "/openapi.json", "/redoc"})
+
+#: Header carrying the token.
+TOKEN_HEADER = "X-TaskHub-Token"
+
+
+def _presented_token(request: Request) -> str | None:
+    """Read the token from the request headers.
+
+    Both a dedicated header and the usual ``Authorization: Bearer`` are
+    accepted, so a browser, a CLI and a proxy can all pass the token.
+
+    Args:
+        request: The incoming request.
+
+    Returns:
+        The token, or ``None`` when it was not presented.
+    """
+    direct = request.headers.get(TOKEN_HEADER)
+    if direct:
+        return direct.strip()
+    authorization = request.headers.get("Authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return None
+
+
+@app.middleware("http")
+async def token_guard(request: Request, call_next: Callable[[Request], Awaitable[Any]]) -> Any:
+    """Require the configured token for every endpoint but the probe.
+
+    Without a configured token the API stays open, so a local setup
+    keeps working unchanged; the guard only bites when the operator
+    asked for it.
+    """
+
+    token = get_settings().token
+    path = request.url.path
+    if not token or path in OPEN_PATHS or path.startswith("/static"):
+        return await call_next(request)
+
+    presented = _presented_token(request)
+    if presented != token:
+        return JSONResponse(
+            {"detail": "invalid or missing token"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
 
 
 async def _guard[T](awaitable: Awaitable[T]) -> T:

@@ -42,6 +42,7 @@
   <h1>TaskHub</h1>
   <span class="muted" id="status">loading…</span>
   <button onclick="refresh()">Refresh</button>
+  <button onclick="askToken()">Token</button>
 </header>
 <main>
   <aside>
@@ -72,10 +73,37 @@ let allProjects = [];
 let current = null;
 let currentStatus = "";
 
+// The API can be protected by a token (TASKHUB_TOKEN). When it is, the
+// dashboard asks for it once and keeps it for the session.
+const TOKEN_KEY = "taskhub.token";
+
+function apiToken() {
+  try { return window.sessionStorage.getItem(TOKEN_KEY) || ""; }
+  catch (e) { return ""; }
+}
+
+function setApiToken(value) {
+  try {
+    if (value) window.sessionStorage.setItem(TOKEN_KEY, value);
+    else window.sessionStorage.removeItem(TOKEN_KEY);
+  } catch (e) { /* storage is unavailable: the token is simply not kept */ }
+}
+
 async function api(path) {
-  const res = await fetch(path);
+  const headers = {};
+  const token = apiToken();
+  if (token) headers["X-TaskHub-Token"] = token;
+  const res = await fetch(path, { headers });
+  if (res.status === 401) throw new Error("401 token required");
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json();
+}
+
+function askToken() {
+  const value = window.prompt("TaskHub API token (leave empty if none is set):", apiToken());
+  if (value === null) return;
+  setApiToken(value.trim());
+  refresh();
 }
 
 function renderProjects(filter = "") {
@@ -95,7 +123,11 @@ async function refresh() {
     $("status").textContent = `${allProjects.length} projects`;
     renderProjects($("filter") ? $("filter").value : "");
     if (current) await loadDetail();
-  } catch (e) { $("status").textContent = "error: " + e.message; }
+  } catch (e) {
+    $("status").textContent = e.message === "401 token required"
+      ? "token required — click Token"
+      : "error: " + e.message;
+  }
 }
 
 function renderCost(summary, series, rows) {

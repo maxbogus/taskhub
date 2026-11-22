@@ -62,6 +62,15 @@ async def test_dashboard_served(client: AsyncClient) -> None:
     assert "TaskHub" in response.text
 
 
+async def test_dashboard_supports_the_api_token(client: AsyncClient) -> None:
+    """The dashboard can pass the token when the API is protected."""
+    response = await client.get("/")
+
+    body = response.text
+    assert "X-TaskHub-Token" in body
+    assert "askToken" in body
+
+
 async def test_dashboard_has_cost_panel(client: AsyncClient) -> None:
     """The dashboard renders the cost panel and escapes external values."""
     response = await client.get("/")

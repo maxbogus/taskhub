@@ -102,6 +102,13 @@ make eval        # MCP tool contract against the real MCP server (needs npm inst
 - USD is canonical; `TASKHUB_RUB_PER_USD` adds a **display** twin of
   every USD field (rubles are never stored and never re-calculated).
 
+## API authentication
+
+- `TASKHUB_TOKEN` protects the REST API and the dashboard; without it
+  the API stays open (a local setup must keep working).
+- `/healthz` and the API docs stay reachable without a token: a health
+  check that needs a token cannot be used by Docker.
+
 ## Note search
 
 - The FTS5 index is an **accelerator, not schema**: it is created by

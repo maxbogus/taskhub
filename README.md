@@ -97,6 +97,7 @@ Zero-config: the app runs with these defaults. Override any setting with the
 | Metrics sources | `TASKHUB_METRICS_SOURCES` | `cline` |
 | Claim TTL (min) | `TASKHUB_DEFAULT_CLAIM_TTL_MINUTES` | `30` |
 | Log level | `TASKHUB_LOG_LEVEL` | `INFO` |
+| API token | `TASKHUB_TOKEN` | unset (API is open) |
 | Prices file | `TASKHUB_PRICES_FILE` | `src/taskhub/prices.yaml` |
 | Human rate (USD/h) | `TASKHUB_HUMAN_RATE_USD_PER_HOUR` | `50` (placeholder) |
 | Error cost (USD) | `TASKHUB_ERROR_COST_USD` | `0` (errors not billed) |
@@ -347,6 +348,24 @@ SQLite by default at `$TASKHUB_HOME/taskhub.db` (created by `init-db`). Override
 with `TASKHUB_DB_URL`, or point it at PostgreSQL (`postgresql+asyncpg://…`).
 Migrations are managed by Alembic.
 
+## API authentication (M15)
+
+Set `TASKHUB_TOKEN` to protect the REST API and the dashboard:
+
+```bash
+TASKHUB_TOKEN=secret uv run taskhub-web
+```
+
+The token is accepted either in the `X-TaskHub-Token` header or as
+`Authorization: Bearer <token>`. Without a configured token the API
+stays open, so a local setup keeps working unchanged.
+
+Two paths stay open on purpose: `/healthz` (a health check that needs a
+token cannot be used by Docker or a load balancer) and the API docs.
+
+The dashboard asks for the token once (the **Token** button) and keeps it
+for the session.
+
 ## The portfolio pseudo-project (M14)
 
 The files at the root of the repositories tree (`INDEX.md`, `STATUS.md`,
@@ -516,6 +535,5 @@ export, backup, mcp, web, docker-up/down.
 
 ## Milestones
 
-All planned milestones M1–M14 are complete. Suggested follow-ups: note
-filtering in the dashboard, partitioned metrics for PostgreSQL, and auth
-in front of the dashboard.
+All planned milestones M1–M15 are complete. Suggested follow-ups: note
+filtering in the dashboard and partitioned metrics for PostgreSQL.
