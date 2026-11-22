@@ -37,6 +37,7 @@ src/taskhub/
                   cost_estimator, economics, price_store
   prices.py       declarative model price list (prices.yaml) → micro-USD
   services/fts.py optional FTS5 index for notes (accelerator, not schema)
+  services/portfolio.py  the `portfolio` pseudo-project (hidden, reserved slug)
   mcp/            server.py (FastMCP), tools.py, resources.py
   api/            main.py (FastAPI REST + dashboard), static/index.html
   cli.py          `taskhub init-db|list-projects|mcp-config|import-templates|backup`

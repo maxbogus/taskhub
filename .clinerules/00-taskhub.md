@@ -24,6 +24,7 @@ The database (`TASKHUB_DB_URL`, default `$TASKHUB_HOME/taskhub.db`, where
 - `src/taskhub/services/economics.py` — отчёты, burn-rate, EVM в деньгах.
 - `src/taskhub/services/price_store.py` — запись цен и ставок (архив, не удаление).
 - `src/taskhub/services/fts.py` — опциональный FTS5-индекс заметок (ускоритель).
+- `src/taskhub/services/portfolio.py` — псевдо-проект `portfolio` (скрыт из списка).
 - `src/taskhub/services/projects.py` — project discovery + README description.
 - `docs/COLLECTION_MAP.md` — which folders are imported and where to look.
 

@@ -347,6 +347,23 @@ SQLite by default at `$TASKHUB_HOME/taskhub.db` (created by `init-db`). Override
 with `TASKHUB_DB_URL`, or point it at PostgreSQL (`postgresql+asyncpg://…`).
 Migrations are managed by Alembic.
 
+## The portfolio pseudo-project (M14)
+
+The files at the root of the repositories tree (`INDEX.md`, `STATUS.md`,
+`SUMMARY.md`, `portfolio_data.json`, ...) describe the whole portfolio
+rather than one project. They are collected into a single pseudo-project
+so they are reachable through the same tools as everything else.
+
+Two rules keep it from confusing the rest of the system:
+
+* it is **hidden** from the project listing — the dashboard shows real
+  projects, not a fake entry;
+* its slug is **reserved** — a real project cannot take the name.
+
+```bash
+uv run taskhub portfolio          # summary of the whole portfolio
+```
+
 ## Note search (M13)
 
 Notes are searched with **two complementary strategies**:
@@ -499,7 +516,6 @@ export, backup, mcp, web, docker-up/down.
 
 ## Milestones
 
-All planned milestones M1–M13 are complete. Suggested follow-ups: note
-filtering in the dashboard, a `portfolio` pseudo-project for root-level
-indexes, partitioned metrics for PostgreSQL, and auth in front of the
-dashboard.
+All planned milestones M1–M14 are complete. Suggested follow-ups: note
+filtering in the dashboard, partitioned metrics for PostgreSQL, and auth
+in front of the dashboard.

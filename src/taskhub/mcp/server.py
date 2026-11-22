@@ -52,6 +52,7 @@ mcp.tool()(tools.sync_prices)
 mcp.tool()(tools.set_model_price)
 mcp.tool()(tools.close_model_price)
 mcp.tool()(tools.set_project_economics)
+mcp.tool()(tools.portfolio_summary)
 
 mcp.resource("task://{item_id}")(resources.task_doc)
 mcp.resource("task://{item_id}/context")(resources.task_context)

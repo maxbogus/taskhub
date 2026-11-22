@@ -83,6 +83,25 @@ sources:
     requires_task_section: true
     register_project: false
 
+  # Root-level files of the repositories tree. They describe the whole
+  # portfolio, not one project, so they are collected into the
+  # `portfolio` pseudo-project and never register a project.
+  - name: portfolio-root
+    kind: note
+    files:
+      - ["INDEX.md"]
+      - ["STATUS.md"]
+      - ["SUMMARY.md"]
+      - ["ML_TRAINING_ROADMAP.md"]
+      - ["portfolio_data.json"]
+      - ["about_data.json"]
+      - ["skills_data.json"]
+      - ["education_data.json"]
+      - ["experience_data.json"]
+    patterns: ["**/*.md", "**/*.json"]
+    parser: markdown_note
+    register_project: false
+
   # ----------------------------------------------------- notes / ledgers
   - name: ledger-jsonl
     kind: note

@@ -41,7 +41,16 @@ async def upsert_project(
     description: str | None = None,
     config: dict[str, Any] | None = None,
 ) -> tuple[Project, bool]:
-    """Create a project or refresh its metadata; returns ``(project, created)``."""
+    """Create a project or refresh its metadata; returns ``(project, created)``.
+
+    Raises:
+        ValueError: The slug is reserved for the portfolio pseudo-project.
+    """
+
+    from taskhub.services.portfolio import is_portfolio
+
+    if is_portfolio(slug):
+        raise ValueError(f"slug '{slug}' is reserved for the portfolio pseudo-project")
 
     stmt = select(Project).where(Project.slug == slug)
     existing = (await session.execute(stmt)).scalar_one_or_none()
@@ -67,16 +76,23 @@ async def upsert_project(
 
 
 async def get_project_by_slug(session: AsyncSession, slug: str) -> Project | None:
-    stmt = select(Project).where(
-        Project.slug == slug, Project.archived_at.is_(None)
-    )
+    stmt = select(Project).where(Project.slug == slug, Project.archived_at.is_(None))
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def list_projects(session: AsyncSession) -> list[Project]:
+    """Return the active real projects.
+
+    The portfolio pseudo-project is left out: it is reachable by slug,
+    but it must not appear among the real projects (the dashboard would
+    show a fake entry).
+    """
+
+    from taskhub.services.portfolio import PORTFOLIO_SLUG
+
     stmt = (
         select(Project)
-        .where(Project.archived_at.is_(None))
+        .where(Project.archived_at.is_(None), Project.slug != PORTFOLIO_SLUG)
         .order_by(Project.slug.asc())
     )
     return list((await session.execute(stmt)).scalars().all())

@@ -150,6 +150,15 @@ async def _export(
         print(text)
 
 
+async def _portfolio() -> None:
+    """Print the summary of the whole portfolio."""
+    from taskhub.services.portfolio import portfolio_summary
+
+    async with session_scope() as session:
+        summary = await portfolio_summary(session)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
 async def _reindex_notes() -> None:
     """Rebuild the full-text index of the notes."""
     from taskhub.services.fts import ensure_index, rebuild_index
@@ -290,6 +299,7 @@ def main() -> None:
     export_parser.add_argument("--limit", type=int, default=500)
     export_parser.add_argument("--out", default=None)
     subparsers.add_parser("reindex-notes", help="rebuild the full-text index of the notes")
+    subparsers.add_parser("portfolio", help="summarise the whole portfolio of projects")
     prices_parser = subparsers.add_parser("prices", help="show or synchronise the model price list")
     prices_sub = prices_parser.add_subparsers(dest="prices_command", required=True)
     prices_list_parser = prices_sub.add_parser("list", help="show the known model prices")
@@ -329,6 +339,8 @@ def main() -> None:
         asyncio.run(_import_all(args.dry_run, args.no_backup, args.project, args.notes))
     elif args.command == "import-notes":
         asyncio.run(_import_notes(args.dry_run, args.no_backup, not args.no_memory))
+    elif args.command == "portfolio":
+        asyncio.run(_portfolio())
     elif args.command == "reindex-notes":
         asyncio.run(_reindex_notes())
     elif args.command == "prices":

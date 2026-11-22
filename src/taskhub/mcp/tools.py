@@ -93,6 +93,7 @@ from taskhub.services.metric_ingest import (
     task_metrics as task_metrics_service,
 )
 from taskhub.services.note_importer import import_all_notes as import_all_notes_service
+from taskhub.services.portfolio import portfolio_summary as portfolio_summary_service
 from taskhub.services.price_store import (
     add_audit_note,
 )
@@ -1178,3 +1179,10 @@ async def set_project_economics(
             "error_cost_usd": rates.get("error_cost_usd"),
             "supervision_cost_usd": rates.get("supervision_cost_usd"),
         }
+
+
+async def portfolio_summary() -> dict[str, Any]:
+    """Summarise the whole portfolio: projects, items and statuses."""
+
+    async with session_scope() as session:
+        return await portfolio_summary_service(session)
