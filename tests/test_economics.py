@@ -368,3 +368,88 @@ def test_money_evm_handles_zero_actual_cost() -> None:
 
     assert result["cpi"] is None
     assert result["eac_usd"] == pytest.approx(300.0)
+
+
+async def test_summary_adds_rub_view_when_configured(session: AsyncSession, monkeypatch) -> None:
+    """A display currency adds a twin of every USD field."""
+    monkeypatch.setenv("TASKHUB_RUB_PER_USD", "100")
+    if True:
+        project, done, _open_item, agent = await _seed(session)
+        await _add_price(session, pattern="econ-*", input_micro=1_000_000)
+        await _add_metric(
+            session,
+            work_item_id=done.id,
+            agent_id=agent.id,
+            project_id=project.id,
+            model="econ-small",
+            prompt_tokens=1_000_000,
+        )
+        await session.commit()
+
+        summary = await economics_summary(session, project_slug="p")
+
+    assert summary["currency"] == "USD"
+    assert summary["rub_per_usd"] == pytest.approx(100.0)
+    assert summary["token_cost_rub"] == pytest.approx(100.0)
+    assert summary["total_cost_rub"] == pytest.approx(100.0)
+    # The canonical USD values stay untouched.
+    assert summary["token_cost_usd"] == pytest.approx(1.0)
+
+
+async def test_summary_without_rate_has_no_rub_view(session: AsyncSession) -> None:
+    """Without a rate there is nothing to convert into."""
+    _project, *_ = await _seed(session)
+    await session.commit()
+
+    summary = await economics_summary(session, project_slug="p")
+
+    assert "token_cost_rub" not in summary
+    assert summary["rub_per_usd"] is None
+
+
+async def test_report_rows_get_rub_twins(session: AsyncSession, monkeypatch) -> None:
+    """Every USD field of a report row gets a rub twin."""
+    monkeypatch.setenv("TASKHUB_RUB_PER_USD", "80")
+    if True:
+        project, done, _open_item, agent = await _seed(session)
+        await _add_price(session, pattern="econ-*", input_micro=1_000_000)
+        await _add_metric(
+            session,
+            work_item_id=done.id,
+            agent_id=agent.id,
+            project_id=project.id,
+            model="econ-small",
+            prompt_tokens=1_000_000,
+        )
+        await session.commit()
+
+        report = await economics_report(session, project_slug="p")
+
+    row = report[0]
+    assert row["token_cost_rub"] == pytest.approx(80.0)
+    assert row["total_cost_rub"] == pytest.approx(80.0)
+    assert row["rub_per_usd"] == pytest.approx(80.0)
+
+
+async def test_cost_series_points_get_rub_twins(session: AsyncSession, monkeypatch) -> None:
+    """The burn series is convertible too."""
+    monkeypatch.setenv("TASKHUB_RUB_PER_USD", "50")
+    if True:
+        project, done, _open_item, agent = await _seed(session)
+        await _add_price(session, pattern="econ-*", input_micro=1_000_000)
+        await _add_metric(
+            session,
+            work_item_id=done.id,
+            agent_id=agent.id,
+            project_id=project.id,
+            model="econ-small",
+            prompt_tokens=1_000_000,
+            recorded_at=datetime(2026, 1, 5, 10),
+        )
+        await session.commit()
+
+        series = await cost_series(session, project_slug="p", bucket="day")
+
+    point = series["points"][0]
+    assert point["total_cost_rub"] == pytest.approx(50.0)
+    assert point["cumulative_rub"] == pytest.approx(50.0)

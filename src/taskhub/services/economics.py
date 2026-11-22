@@ -74,6 +74,41 @@ class Rates:
         }
 
 
+def rub_per_usd() -> Decimal | None:
+    """The configured display rate, or ``None`` when it is not set.
+
+    USD stays the canonical currency; rubles are a **display** view that
+    only appears when a rate is configured.
+
+    Returns:
+        The rate, or ``None``.
+    """
+    raw = get_settings().rub_per_usd
+    if raw is None or raw <= 0:
+        return None
+    return Decimal(str(raw))
+
+
+def with_rub(payload: dict[str, Any], rate: Decimal | None) -> dict[str, Any]:
+    """Add a ruble twin of every USD field in a payload.
+
+    Args:
+        payload: The dictionary with ``*_usd`` fields.
+        rate: The rate to use; ``None`` leaves the payload untouched.
+
+    Returns:
+        The payload with the ruble fields added.
+    """
+    payload["rub_per_usd"] = float(rate) if rate is not None else None
+    if rate is None:
+        return payload
+    for key, value in list(payload.items()):
+        if not key.endswith("_usd") or not isinstance(value, (int, float)):
+            continue
+        payload[f"{key[:-4]}_rub"] = round(float(value) * float(rate), 6)
+    return payload
+
+
 def _decimal(value: Any, default: str = "0") -> Decimal:
     """Read a value as Decimal without importing binary float error."""
     if value is None:
@@ -287,6 +322,7 @@ async def economics_report(
             continue
         entry["token_cost_usd"] += micro_usd_to_usd(estimate_token_cost_micro(usage, price))
 
+    rate = rub_per_usd()
     result: list[dict[str, Any]] = []
     for entry in groups.values():
         failures = int(entry["failures"])
@@ -298,33 +334,36 @@ async def economics_report(
         priced = bool(entry["priced"])
 
         result.append(
-            {
-                "key": entry["key"],
-                "sessions": len(entry["sessions"]),
-                "metrics": metrics,
-                "prompt_tokens": entry["prompt_tokens"],
-                "completion_tokens": entry["completion_tokens"],
-                "cache_read_tokens": entry["cache_read_tokens"],
-                "cache_write_tokens": entry["cache_write_tokens"],
-                "total_tokens": entry["total_tokens"],
-                "active_hours": round(active_hours, 4),
-                "reported_cost_usd": round(float(entry["reported_cost_usd"]), 6),
-                "token_cost_usd": round(float(token_cost), 6) if priced else None,
-                "error_cost_usd": round(float(error_cost), 6),
-                "total_cost_usd": round(float(total_cost), 6),
-                "human_equivalent_cost_usd": round(
-                    float(
-                        human_equivalent_cost_usd(
-                            active_hours, float(rates.human_rate_usd_per_hour)
-                        )
+            with_rub(
+                {
+                    "key": entry["key"],
+                    "sessions": len(entry["sessions"]),
+                    "metrics": metrics,
+                    "prompt_tokens": entry["prompt_tokens"],
+                    "completion_tokens": entry["completion_tokens"],
+                    "cache_read_tokens": entry["cache_read_tokens"],
+                    "cache_write_tokens": entry["cache_write_tokens"],
+                    "total_tokens": entry["total_tokens"],
+                    "active_hours": round(active_hours, 4),
+                    "reported_cost_usd": round(float(entry["reported_cost_usd"]), 6),
+                    "token_cost_usd": round(float(token_cost), 6) if priced else None,
+                    "error_cost_usd": round(float(error_cost), 6),
+                    "total_cost_usd": round(float(total_cost), 6),
+                    "human_equivalent_cost_usd": round(
+                        float(
+                            human_equivalent_cost_usd(
+                                active_hours, float(rates.human_rate_usd_per_hour)
+                            )
+                        ),
+                        6,
                     ),
-                    6,
-                ),
-                "failures": failures,
-                "error_rate": round(failures / metrics, 6) if metrics else 0.0,
-                "unpriced": not priced,
-                "unpriced_tokens": entry["unpriced_tokens"],
-            }
+                    "failures": failures,
+                    "error_rate": round(failures / metrics, 6) if metrics else 0.0,
+                    "unpriced": not priced,
+                    "unpriced_tokens": entry["unpriced_tokens"],
+                },
+                rate,
+            )
         )
 
     result.sort(key=lambda row: row["total_cost_usd"], reverse=True)
@@ -422,6 +461,8 @@ async def economics_summary(
         "unpriced_models": unpriced_models,
         "unpriced_token_share": (round(unpriced_tokens / total_tokens, 6) if total_tokens else 0.0),
     }
+
+    summary = with_rub(summary, rub_per_usd())
 
     if project is not None:
         summary["progress_money"] = _money_progress(
@@ -601,6 +642,7 @@ async def cost_series(
             estimate_token_cost_micro(usage_from_metric(metric), price)
         )
 
+    rate = rub_per_usd()
     points: list[dict[str, Any]] = []
     cumulative = Decimal("0")
     for label in sorted(buckets):
@@ -609,31 +651,37 @@ async def cost_series(
         total = entry["token_cost_usd"] + error_cost
         cumulative += total
         points.append(
-            {
-                "bucket": label,
-                "sessions": len(entry["sessions"]),
-                "metrics": entry["metrics"],
-                "token_cost_usd": round(float(entry["token_cost_usd"]), 6),
-                "error_cost_usd": round(float(error_cost), 6),
-                "total_cost_usd": round(float(total), 6),
-                "active_hours": round(float(entry["active_ms"]) / 3_600_000.0, 4),
-                "cumulative_usd": round(float(cumulative), 6),
-            }
+            with_rub(
+                {
+                    "bucket": label,
+                    "sessions": len(entry["sessions"]),
+                    "metrics": entry["metrics"],
+                    "token_cost_usd": round(float(entry["token_cost_usd"]), 6),
+                    "error_cost_usd": round(float(error_cost), 6),
+                    "total_cost_usd": round(float(total), 6),
+                    "active_hours": round(float(entry["active_ms"]) / 3_600_000.0, 4),
+                    "cumulative_usd": round(float(cumulative), 6),
+                },
+                rate,
+            )
         )
 
     window_days = _window_days(points, bucket)
     total_spend = sum(Decimal(str(point["total_cost_usd"])) for point in points)
     burn_per_day = total_spend / Decimal(window_days) if window_days > 0 else Decimal("0")
 
-    return {
-        "project": project.slug if project is not None else None,
-        "bucket": bucket,
-        "points": points,
-        "window_days": window_days,
-        "total_cost_usd": round(float(total_spend), 6),
-        "burn_usd_per_day": round(float(burn_per_day), 6),
-        "burn_usd_per_week": round(float(burn_per_day * 7), 6),
-    }
+    return with_rub(
+        {
+            "project": project.slug if project is not None else None,
+            "bucket": bucket,
+            "points": points,
+            "window_days": window_days,
+            "total_cost_usd": round(float(total_spend), 6),
+            "burn_usd_per_day": round(float(burn_per_day), 6),
+            "burn_usd_per_week": round(float(burn_per_day * 7), 6),
+        },
+        rate,
+    )
 
 
 def _window_days(points: list[dict[str, Any]], bucket: str) -> int:

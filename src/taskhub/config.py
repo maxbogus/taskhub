@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     human_rate_usd_per_hour: float = 50.0
     error_cost_usd: float = 0.0
     supervision_cost_usd: float = 0.0
+    rub_per_usd: float | None = None
 
     @model_validator(mode="before")
     @classmethod

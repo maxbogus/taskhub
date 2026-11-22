@@ -97,6 +97,8 @@ make eval        # MCP tool contract against the real MCP server (needs npm inst
   real spend), **not** the classic CPI; the hourly EVM stays untouched.
 - Project rates live in `Project.config["economics"]` and override the
   `TASKHUB_*` settings.
+- USD is canonical; `TASKHUB_RUB_PER_USD` adds a **display** twin of
+  every USD field (rubles are never stored and never re-calculated).
 
 ## Notes, ledgers and export
 

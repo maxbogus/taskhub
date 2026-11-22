@@ -101,6 +101,7 @@ Zero-config: the app runs with these defaults. Override any setting with the
 | Human rate (USD/h) | `TASKHUB_HUMAN_RATE_USD_PER_HOUR` | `50` (placeholder) |
 | Error cost (USD) | `TASKHUB_ERROR_COST_USD` | `0` (errors not billed) |
 | Supervision cost (USD) | `TASKHUB_SUPERVISION_COST_USD` | `0` (not measured) |
+| Ruble display rate | `TASKHUB_RUB_PER_USD` | unset (no ruble fields) |
 
 ## Startup scripts & scenarios
 
@@ -366,6 +367,17 @@ Rates come from `TASKHUB_HUMAN_RATE_USD_PER_HOUR` (default `50`, a
 
 ```json
 {"config": {"economics": {"human_rate_usd_per_hour": 75, "error_cost_usd": 40}}}
+```
+
+### Rubles
+
+USD stays the canonical currency. Setting `TASKHUB_RUB_PER_USD` adds a
+ruble twin of every USD field (`token_cost_rub`, `total_cost_rub`,
+`baseline_human_cost_rub`, …) to the summary, the report rows and the
+burn series. Without the rate, no ruble fields appear at all.
+
+```bash
+TASKHUB_RUB_PER_USD=95 uv run taskhub economics --project demo --format summary
 ```
 
 ### Two rules that keep the numbers honest
