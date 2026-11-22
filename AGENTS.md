@@ -36,6 +36,7 @@ src/taskhub/
                   backup (retention), metric_ingest,
                   cost_estimator, economics, price_store
   prices.py       declarative model price list (prices.yaml) → micro-USD
+  services/fts.py optional FTS5 index for notes (accelerator, not schema)
   mcp/            server.py (FastMCP), tools.py, resources.py
   api/            main.py (FastAPI REST + dashboard), static/index.html
   cli.py          `taskhub init-db|list-projects|mcp-config|import-templates|backup`
@@ -99,6 +100,13 @@ make eval        # MCP tool contract against the real MCP server (needs npm inst
   `TASKHUB_*` settings.
 - USD is canonical; `TASKHUB_RUB_PER_USD` adds a **display** twin of
   every USD field (rubles are never stored and never re-calculated).
+
+## Note search
+
+- The FTS5 index is an **accelerator, not schema**: it is created by
+  `init-db` with idempotent DDL and needs no Alembic migration.
+- `search_notes` merges the index hits with the portable substring
+  matches, so the answers never change — only the speed does.
 
 ## Notes, ledgers and export
 

@@ -73,11 +73,28 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 
 
 async def init_db(db_url: str | None = None) -> None:
-    """Create all tables (used by tests and the early CLI)."""
+    """Create all tables (used by tests and the early CLI).
+
+    The full-text index for notes is created as well: it is optional, so
+    a backend without FTS5 simply does without it.
+    """
 
     engine = get_engine(db_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await ensure_note_index()
+
+
+async def ensure_note_index() -> bool:
+    """Create the note full-text index when the backend supports it.
+
+    Returns:
+        True when the index exists after the call.
+    """
+    from taskhub.services.fts import ensure_index
+
+    async with session_scope() as session:
+        return await ensure_index(session)
 
 
 async def dispose_engine() -> None:

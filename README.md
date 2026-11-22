@@ -347,6 +347,24 @@ SQLite by default at `$TASKHUB_HOME/taskhub.db` (created by `init-db`). Override
 with `TASKHUB_DB_URL`, or point it at PostgreSQL (`postgresql+asyncpg://…`).
 Migrations are managed by Alembic.
 
+## Note search (M13)
+
+Notes are searched with **two complementary strategies**:
+
+* the **full-text index** (FTS5 on SQLite) matches whole words and their
+  prefixes — it is what keeps a search fast on a large note table;
+* the **portable substring search** matches occurrences *inside* a word
+  ("gres" in "Postgres"), which the index cannot match.
+
+Both are used, so the results are the same as the plain substring search
+used to be: the index adds speed, never different answers. The index is
+created on `init-db` and is **optional** — on PostgreSQL (or a SQLite
+built without FTS5) the substring search simply carries the query.
+
+```bash
+uv run taskhub reindex-notes   # rebuild the index from the notes table
+```
+
 ## Agent economics (M11)
 
 The economics layer answers two questions: **what did the agents cost?**
@@ -481,8 +499,7 @@ export, backup, mcp, web, docker-up/down.
 
 ## Milestones
 
-All planned milestones M1–M11 are complete. Suggested follow-ups: an
-agentic eval layer on a live model (M12), ruble conversion for the money
-view, SQLite FTS5 for note search, note filtering in the dashboard, a
-`portfolio` pseudo-project for root-level indexes, partitioned metrics for
-PostgreSQL, and auth in front of the dashboard.
+All planned milestones M1–M13 are complete. Suggested follow-ups: note
+filtering in the dashboard, a `portfolio` pseudo-project for root-level
+indexes, partitioned metrics for PostgreSQL, and auth in front of the
+dashboard.

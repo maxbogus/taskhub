@@ -65,10 +65,24 @@ async def search_notes(
     kind: NoteKind | None = None,
     limit: int = 20,
 ) -> list[Note]:
-    """Substring search over note content (portable across SQLite/PostgreSQL)."""
+    """Search the notes of a project.
+
+    The search combines two complementary strategies:
+
+    * the full-text index (FTS5 on SQLite) finds whole words and their
+      prefixes — it is what makes a search fast on a large note table;
+    * the portable substring search finds occurrences **inside** a word
+      ("gres" in "Postgres"), which the index cannot match.
+
+    Both are used, so the result set stays the same as the plain substring
+    search used to be — the index adds speed, never different answers.
+    """
 
     if not query.strip():
         return []
+
+    from taskhub.services.fts import search_notes_fts
+
     stmt = select(Note).where(
         Note.project_id == project_id,
         Note.content.contains(query, autoescape=True),
@@ -78,4 +92,22 @@ async def search_notes(
     if kind is not None:
         stmt = stmt.where(Note.kind == kind)
     stmt = stmt.order_by(Note.created_at.desc()).limit(limit)
-    return list((await session.execute(stmt)).scalars().all())
+    plain = list((await session.execute(stmt)).scalars().all())
+
+    indexed = await search_notes_fts(
+        session,
+        project_id,
+        query,
+        work_item_id=work_item_id,
+        kind=kind,
+        limit=limit,
+    )
+    if not indexed:
+        return plain
+
+    # Merge both sets, keeping the order of the substring search and
+    # adding the index-only hits at the end.
+    merged: list[Note] = list(plain)
+    known = {note.id for note in plain}
+    merged.extend(note for note in indexed if note.id not in known)
+    return merged[:limit]
