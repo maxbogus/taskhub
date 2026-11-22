@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from taskhub.models import Project, WorkItem, WorkStatus
+from taskhub.services.economics import money_progress
 from taskhub.services.evm import EVMCalculator
 from taskhub.services.forecast import simulate_duration, summarize_forecast
 from taskhub.services.metrics import collect_project_metrics
@@ -48,16 +49,12 @@ def _rice_entry(item: WorkItem) -> dict[str, Any] | None:
     }
 
 
-def _calibrate_velocity(
-    done: list[WorkItem], config: dict[str, Any], now: datetime
-) -> float:
+def _calibrate_velocity(done: list[WorkItem], config: dict[str, Any], now: datetime) -> float:
     configured = config.get("velocity_hours_per_week")
     if configured:
         return float(configured)
     estimated_done = sum(item.estimate_hours or 0.0 for item in done if item.done_at)
-    done_dates: list[datetime] = [
-        item.done_at for item in done if item.done_at is not None
-    ]
+    done_dates: list[datetime] = [item.done_at for item in done if item.done_at is not None]
     if estimated_done <= 0 or not done_dates:
         return 10.0
     first = min(done_dates)
@@ -76,11 +73,7 @@ async def evaluate_project(
     """Evaluate a project on one snapshot: RICE, EVM, forecast and health."""
 
     items = list(
-        (
-            await session.execute(
-                select(WorkItem).where(WorkItem.project_id == project.id)
-            )
-        )
+        (await session.execute(select(WorkItem).where(WorkItem.project_id == project.id)))
         .scalars()
         .all()
     )
@@ -93,23 +86,18 @@ async def evaluate_project(
         reverse=True,
     )
     next_sprint = [
-        entry["id"]
-        for entry in ranked
-        if entry["recommendation"] in ("Do first", "Schedule")
+        entry["id"] for entry in ranked if entry["recommendation"] in ("Do first", "Schedule")
     ][:5]
 
     done = [item for item in items if item.status is WorkStatus.done]
     open_items = [
         item
         for item in items
-        if item.status
-        not in (WorkStatus.done, WorkStatus.cancelled, WorkStatus.archived)
+        if item.status not in (WorkStatus.done, WorkStatus.cancelled, WorkStatus.archived)
     ]
 
     earned_value = round(sum(item.estimate_hours or 0.0 for item in done), 4)
-    budget_at_completion = round(
-        sum(item.estimate_hours or 0.0 for item in open_items), 4
-    )
+    budget_at_completion = round(sum(item.estimate_hours or 0.0 for item in open_items), 4)
     actual_cost = metrics.active_time_hours
     planned_value = round(
         sum(
@@ -120,9 +108,7 @@ async def evaluate_project(
         4,
     )
 
-    evm = EVMCalculator().evaluate(
-        earned_value, actual_cost, budget_at_completion, planned_value
-    )
+    evm = EVMCalculator().evaluate(earned_value, actual_cost, budget_at_completion, planned_value)
     progress = {
         "earned_value_hours": earned_value,
         "actual_cost_hours": actual_cost,
@@ -169,10 +155,16 @@ async def evaluate_project(
             "status": "ok",
             "remaining_hours": budget_at_completion,
             "velocity_hours_per_week": round(velocity, 4),
-            **summarize_forecast(
-                simulation, list(targets_weeks or DEFAULT_TARGETS_WEEKS)
-            ),
+            **summarize_forecast(simulation, list(targets_weeks or DEFAULT_TARGETS_WEEKS)),
         }
+
+    money_evaluation = await money_progress(
+        session,
+        project,
+        earned_value_hours=earned_value,
+        budget_at_completion_hours=budget_at_completion,
+        planned_value_hours=planned_value,
+    )
 
     stale_cutoff = now - timedelta(days=7)
     health = {
@@ -184,9 +176,7 @@ async def evaluate_project(
             and item.started_at is not None
             and item.started_at < stale_cutoff
         ),
-        "missing_estimate": sum(
-            1 for item in open_items if item.estimate_hours is None
-        ),
+        "missing_estimate": sum(1 for item in open_items if item.estimate_hours is None),
         "variance_ratio": metrics.variance_ratio,
     }
 
@@ -201,6 +191,7 @@ async def evaluate_project(
         "metrics": metrics.to_dict(),
         "prioritization": {"top": ranked[:10], "next_sprint": next_sprint},
         "progress": progress,
+        "progress_money": money_evaluation,
         "forecast": forecast,
         "health": health,
     }

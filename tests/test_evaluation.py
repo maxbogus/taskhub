@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from taskhub.models import Agent, Metric, SessionSource, WorkStatus
@@ -41,17 +42,13 @@ async def test_evaluate_project_returns_all_sections(session: AsyncSession) -> N
     agent = Agent(name="agent-eval")
     session.add(agent)
     await session.flush()
-    work_session = WorkSession(
-        work_item_id=done.id, agent_id=agent.id, source=SessionSource.manual
-    )
+    work_session = WorkSession(work_item_id=done.id, agent_id=agent.id, source=SessionSource.manual)
     session.add(work_session)
     await session.flush()
     session.add(Metric(session_id=work_session.id, active_ms=2 * 3_600_000))
     await session.commit()
 
-    evaluation = await evaluate_project(
-        session, project, n_iterations=200, random_seed=42
-    )
+    evaluation = await evaluate_project(session, project, n_iterations=200, random_seed=42)
 
     assert evaluation["project"] == "p"
     assert evaluation["items"]["total"] == 2
@@ -66,10 +63,46 @@ async def test_evaluate_project_returns_all_sections(session: AsyncSession) -> N
     assert evaluation["health"]["missing_estimate"] == 0
 
 
-async def test_evaluate_project_without_remaining_work(session: AsyncSession) -> None:
+async def test_evaluate_project_includes_money_progress(session: AsyncSession) -> None:
+    """The evaluation carries a money-scale EVM next to the hourly one."""
     project = await create_project(
-        session, slug="done-project", name="Done", root_path="/tmp/done"
+        session,
+        slug="money",
+        name="Money",
+        root_path="/tmp/money",
+        config={"economics": {"human_rate_usd_per_hour": 50.0}},
     )
+    await create_item(
+        session,
+        project_id=project.id,
+        title="Done",
+        status=WorkStatus.done,
+        estimate_hours=4.0,
+    )
+    await create_item(
+        session,
+        project_id=project.id,
+        title="Open",
+        estimate_hours=6.0,
+    )
+    await session.commit()
+
+    evaluation = await evaluate_project(session, project, n_iterations=100)
+
+    money = evaluation["progress_money"]
+    # 4h done * 50 USD/h = 200 USD of human value, 6h open * 50 = 300 USD.
+    assert money["earned_value_usd"] == pytest.approx(200.0)
+    assert money["budget_at_completion_usd"] == pytest.approx(300.0)
+    # AC is the real spend (no tokens, no errors) — NOT the human baseline.
+    assert money["actual_cost_usd"] == pytest.approx(0.0)
+    assert money["cpi"] is None
+    assert "build-vs-buy" in money["note"]
+    # The hourly EVM must stay untouched next to it.
+    assert evaluation["progress"]["earned_value_hours"] == 4.0
+
+
+async def test_evaluate_project_without_remaining_work(session: AsyncSession) -> None:
+    project = await create_project(session, slug="done-project", name="Done", root_path="/tmp/done")
     await create_item(
         session,
         project_id=project.id,

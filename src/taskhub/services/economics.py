@@ -424,18 +424,72 @@ async def economics_summary(
     }
 
     if project is not None:
-        summary["progress_money"] = money_evm(
-            earned_value_usd=human_equivalent_cost_usd(
-                done_estimate_hours, float(rates.human_rate_usd_per_hour)
-            ),
-            actual_cost_usd=Decimal(total_cost),
-            budget_at_completion_usd=human_equivalent_cost_usd(
-                open_estimate_hours, float(rates.human_rate_usd_per_hour)
-            ),
-            planned_value_usd=None,
+        summary["progress_money"] = _money_progress(
+            rates=rates,
+            earned_value_hours=done_estimate_hours,
+            budget_at_completion_hours=open_estimate_hours,
+            planned_value_hours=0.0,
+            actual_cost_usd=total_cost + rates.supervision_cost_usd,
         )
 
     return summary
+
+
+def _money_progress(
+    *,
+    rates: Rates,
+    earned_value_hours: float,
+    budget_at_completion_hours: float,
+    planned_value_hours: float,
+    actual_cost_usd: Decimal,
+) -> dict[str, Any]:
+    """Build the money EVM from hours and the real spend.
+
+    Earned value, budget and planned value are measured on the human
+    baseline; actual cost is the **real** money spent on the agents.
+    Mixing the two scales would make the index meaningless.
+    """
+    rate = float(rates.human_rate_usd_per_hour)
+    return money_evm(
+        earned_value_usd=human_equivalent_cost_usd(earned_value_hours, rate),
+        actual_cost_usd=actual_cost_usd,
+        budget_at_completion_usd=human_equivalent_cost_usd(budget_at_completion_hours, rate),
+        planned_value_usd=human_equivalent_cost_usd(planned_value_hours, rate),
+    )
+
+
+async def money_progress(
+    session: AsyncSession,
+    project: Project,
+    *,
+    earned_value_hours: float,
+    budget_at_completion_hours: float,
+    planned_value_hours: float = 0.0,
+) -> dict[str, Any]:
+    """Money-scale EVM of a project, with the real agent spend as AC.
+
+    Args:
+        session: Database session.
+        project: The project to evaluate.
+        earned_value_hours: Estimated hours of the delivered work.
+        budget_at_completion_hours: Estimated hours of the remaining work.
+        planned_value_hours: Estimated hours planned for the current period.
+
+    Returns:
+        The money-scale EVM snapshot.
+    """
+    rates = resolve_rates(project)
+    rows = await economics_report(session, project_slug=project.slug, group_by="model")
+    token_cost = sum(Decimal(str(row["token_cost_usd"] or 0.0)) for row in rows)
+    error_cost = sum(Decimal(str(row["error_cost_usd"])) for row in rows)
+    actual_cost = token_cost + error_cost + rates.supervision_cost_usd
+    return _money_progress(
+        rates=rates,
+        earned_value_hours=earned_value_hours,
+        budget_at_completion_hours=budget_at_completion_hours,
+        planned_value_hours=planned_value_hours,
+        actual_cost_usd=actual_cost,
+    )
 
 
 def money_evm(
