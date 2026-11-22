@@ -7,6 +7,13 @@ venv/
 dist/
 build/
 
+# Eval artefacts (promptfoo reports)
+docs/evaluation/
+
+# Node (promptfoo eval harness)
+node_modules/
+package-lock.json
+
 # Tooling caches
 .pytest_cache/
 .mypy_cache/

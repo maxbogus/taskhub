@@ -1,0 +1,13 @@
+{
+  "name": "taskhub-eval",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Eval harness for the TaskHub MCP tool contract (promptfoo)",
+  "scripts": {
+    "eval": "make eval",
+    "eval-mock": "make eval-mock"
+  },
+  "devDependencies": {
+    "promptfoo": "0.125.1"
+  }
+}

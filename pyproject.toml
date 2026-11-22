@@ -59,10 +59,16 @@ python_version = "3.12"
 strict = true
 warn_unused_ignores = true
 mypy_path = "src"
-packages = ["taskhub"]
+files = ["src/taskhub", "scripts"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Маркеры eval-слоёв: `mock` — детерминированный replay (всегда зелёный,
+# идёт в CI), `slow` — прогон с живой моделью (вне CI).
+markers = [
+    "mock: deterministic replay without a model (CI-safe)",
+    "slow: runs a live model (not in CI)",
+]

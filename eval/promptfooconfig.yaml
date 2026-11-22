@@ -1,0 +1,97 @@
+# promptfoo — реальные MCP-вызовы тулов TaskHub (M11, слой 2b).
+#
+# Promptfoo сам поднимает MCP-сервер TaskHub (scripts/mcp_server.py) и
+# вызывает тулы по JSON-промпту {"tool": ..., "args": {...}}.
+# Модель не нужна: тестируется сам сервер и его контракт.
+#
+# Assertions только детерминированные (contains / not-contains) —
+# LLM-as-judge сделал бы прогон невоспроизводимым.
+#
+# Запуск: make eval
+#
+# Набор кейсов общий с pytest-контрактом (tests/test_eval_contract.py):
+# eval/cases/tool_contract.jsonl — один источник истины.
+
+description: "TaskHub — MCP-контракт тулов экономики (реальный MCP-вызов)"
+
+providers:
+  - id: mcp
+    label: taskhub-mcp
+    config:
+      enabled: true
+      server:
+        path: ../scripts/mcp_server.py
+        name: taskhub
+      # Allowlist: только тулы экономики. Случайный вызов write-тула
+      # в read-сценарии невозможен.
+      tools:
+        - economics_report
+        - economics_summary
+        - cost_series
+        - list_prices
+        - sync_prices
+        - set_model_price
+        - close_model_price
+        - set_project_economics
+
+prompts:
+  - id: tool-call
+    raw: '{{tool_call}}'
+
+defaultTest:
+  options:
+    # Трансформ разворачивает кейс в JSON-вызов тула: без него MCP-провайдер
+    # получил бы в промпте пустую строку и не знал бы, какой тул звать.
+    transformVars: file://../scripts/promptfoo_transform.py
+  assert:
+    - type: javascript
+      value: |
+        // Проверяется контракт кейса из eval/cases/tool_contract.jsonl.
+        //
+        // Вывод MCP-провайдера — JSON-массив блоков контента, внутри
+        // которого лежит JSON ответа тула. Поэтому разбор двухуровневый:
+        // сначала контент, затем сам ответ.
+        let expect = {};
+        try { expect = JSON.parse(context.vars.expect || '{}'); } catch (e) { expect = {}; }
+
+        let raw = output || '';
+        try {
+          const blocks = JSON.parse(raw);
+          if (Array.isArray(blocks) && blocks.length && blocks[0].text) {
+            raw = blocks[0].text;
+          }
+        } catch (e) { /* ответ не JSON — работаем со строкой как есть */ }
+
+        let payload = null;
+        try { payload = JSON.parse(raw); } catch (e) { payload = null; }
+
+        const problems = [];
+
+        if (expect.status === 'error') {
+          const needle = expect.error_contains || '';
+          if (needle && !raw.includes(needle)) {
+            problems.push(`ожидалась ошибка с "${needle}", получено: ${raw.slice(0, 200)}`);
+          }
+        } else {
+          for (const [key, value] of Object.entries(expect.json_contains || {})) {
+            if (!payload || !(key in payload)) {
+              problems.push(`нет обязательного поля: ${key}`);
+            } else if (payload[key] !== value) {
+              problems.push(`${key}: ожидалось ${value}, получено ${payload[key]}`);
+            }
+          }
+          for (const [key, value] of Object.entries(expect.json_path_equals || {})) {
+            if (!payload || !(key in payload)) {
+              problems.push(`нет поля: ${key}`);
+            } else if (JSON.stringify(payload[key]) !== JSON.stringify(value)) {
+              problems.push(`${key}: ожидалось ${JSON.stringify(value)}, получено ${JSON.stringify(payload[key])}`);
+            }
+          }
+        }
+
+        if (problems.length === 0) return { pass: true, score: 1, reason: 'контракт выполнен' };
+        return { pass: false, score: 0, reason: problems.join('; ') };
+
+# Файл генерируется из tool_contract.jsonl скриптом
+# scripts/build_promptfoo_cases.py: один источник истины на оба слоя.
+tests: file://./cases/tool_contract.promptfoo.jsonl

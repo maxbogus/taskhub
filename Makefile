@@ -1,7 +1,7 @@
 # TaskHub — developer entry points. Run `make` or `make help`.
 
 .DEFAULT_GOAL := help
-.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects import import-notes export backup mcp mcp-config web docker-up docker-down
+.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## / — /' | sed 's/^/  make /'
@@ -73,3 +73,28 @@ docker-up: ## Build and start web + MCP containers
 
 docker-down: ## Stop containers
 	docker compose down
+
+
+# ---------- Agent economics (M11) ----------
+prices: ## Show the known model prices
+	uv run taskhub prices list
+
+sync-prices: ## Apply the price list to the database
+	uv run taskhub prices sync --no-dry-run
+
+economics: ## Show what the agents cost (PROJECT=<slug>)
+	uv run taskhub economics $(if $(PROJECT),--project $(PROJECT),)
+
+# ---------- Eval (MCP tool contract) ----------
+# Layer 1 is the pytest contract and always runs with the test suite.
+# Layer 2a replays the cases deterministically (no model, no server).
+# Layer 2b calls the real MCP server through promptfoo.
+eval-mock: ## Replay the MCP contract cases deterministically (CI-safe)
+	@uv run python scripts/build_promptfoo_cases.py
+	@./node_modules/.bin/promptfoo eval -c eval/promptfooconfig.mock.yaml --no-cache --no-progress-bar 2>&1 | tail -12
+
+eval: ## Run the MCP contract cases against the real MCP server
+	@uv run python scripts/build_promptfoo_cases.py
+	@mkdir -p docs/evaluation
+	@./node_modules/.bin/promptfoo eval -c eval/promptfooconfig.yaml --no-cache --no-progress-bar -o docs/evaluation/eval-mcp.json 2>&1 | tail -12
+	@uv run python scripts/summarize_eval.py docs/evaluation/eval-mcp.json

@@ -1,0 +1,32 @@
+# promptfoo — детерминированный replay MCP-контракта (M11, слой 2a).
+#
+# Провайдер exec запускает scripts/mock_eval_provider.py, который
+# возвращает заранее зафиксированный вердикт для каждого кейса. Никаких
+# сетевых вызовов, токенов и запуска MCP-сервера — прогон
+# воспроизводим, годится для CI.
+#
+# Запуск: make eval-mock
+#
+# Тот же набор кейсов, что и в реальном прогоне:
+# eval/cases/tool_contract.jsonl
+
+description: "TaskHub — MCP-контракт тулов экономики (детерминированный replay)"
+
+providers:
+  - id: exec:python3 ../scripts/mock_eval_provider.py
+    label: deterministic-replay
+
+prompts:
+  - id: tool-call
+    raw: "{{tool_call}}"
+
+defaultTest:
+  options:
+    transformVars: file://../scripts/promptfoo_transform.py
+  assert:
+    - type: contains
+      value: "PASS"
+
+# Файл генерируется из tool_contract.jsonl скриптом
+# scripts/build_promptfoo_cases.py: один источник истины на оба слоя.
+tests: file://./cases/tool_contract.promptfoo.jsonl
