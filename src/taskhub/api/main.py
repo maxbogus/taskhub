@@ -74,9 +74,7 @@ async def api_project_items(
 
 
 @app.get("/api/projects/{slug}/documents")
-async def api_project_documents(
-    slug: str, type: str | None = None
-) -> list[dict[str, Any]]:
+async def api_project_documents(slug: str, type: str | None = None) -> list[dict[str, Any]]:
     """Documents for a project, optionally filtered by type."""
 
     return await _guard(tools.list_documents(slug, type=type))
@@ -111,9 +109,40 @@ async def api_metrics(
 ) -> list[dict[str, Any]]:
     """Aggregated token/cost/time metrics."""
 
+    return await _guard(tools.metrics_report(project_slug=project, group_by=group_by, since=since))
+
+
+@app.get("/api/economics")
+async def api_economics(
+    project: str | None = None,
+    group_by: str = "model",
+    since: str | None = None,
+) -> list[dict[str, Any]]:
+    """Money view of the agent usage, grouped by model/agent/task/project."""
+
     return await _guard(
-        tools.metrics_report(project_slug=project, group_by=group_by, since=since)
+        tools.economics_report(project_slug=project, group_by=group_by, since=since)
     )
+
+
+@app.get("/api/economics/summary")
+async def api_economics_summary(project: str | None = None) -> dict[str, Any]:
+    """Totals, human baseline, savings, ROI and the money-scale EVM."""
+
+    if not project:
+        raise HTTPException(status_code=400, detail="project is required")
+    return await _guard(tools.economics_summary(project))
+
+
+@app.get("/api/economics/series")
+async def api_economics_series(
+    project: str | None = None,
+    bucket: str = "day",
+    since: str | None = None,
+) -> dict[str, Any]:
+    """Burn-rate series of the agent spend."""
+
+    return await _guard(tools.cost_series(project_slug=project, bucket=bucket, since=since))
 
 
 @app.get("/", include_in_schema=False)

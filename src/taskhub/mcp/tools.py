@@ -398,6 +398,7 @@ async def project_status(project_slug: str) -> dict[str, Any]:
             "total_items": evaluation["items"]["total"],
             "by_status": evaluation["items"]["by_status"],
             "progress": evaluation["progress"],
+            "progress_money": evaluation["progress_money"],
             "forecast": {
                 "status": forecast.get("status"),
                 "p50": forecast.get("p50"),

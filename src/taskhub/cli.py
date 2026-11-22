@@ -6,15 +6,24 @@ import argparse
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
+
+from sqlalchemy import select
 
 from taskhub.config import get_settings
 from taskhub.db import init_db, session_scope
 from taskhub.mcp_config import render_mcp_config, write_mcp_config
+from taskhub.models import ModelPrice
 from taskhub.repo.projects import list_projects as repo_list_projects
 from taskhub.services.backup import create_backup
 from taskhub.services.collect import import_all as import_all_service
+from taskhub.services.economics import cost_series as cost_series_service
+from taskhub.services.economics import economics_report as economics_report_service
+from taskhub.services.economics import economics_summary as economics_summary_service
+from taskhub.services.economics import load_price_specs
 from taskhub.services.export import export_notes
 from taskhub.services.note_importer import import_all_notes
+from taskhub.services.price_store import sync_prices as sync_prices_service
 from taskhub.services.projects import register_projects as register_projects_service
 from taskhub.services.templates import (
     DEFAULT_TEMPLATE_SOURCES,
@@ -141,6 +150,78 @@ async def _export(
         print(text)
 
 
+async def _prices_list(model: str | None) -> None:
+    """Print the known model prices."""
+    async with session_scope() as session:
+        rows = list((await session.execute(select(ModelPrice))).scalars().all())
+        db_patterns = {row.pattern for row in rows}
+        specs = await load_price_specs(session)
+    if model:
+        needle = model.strip().lower()
+        specs = [spec for spec in specs if needle in spec.pattern.lower()]
+    payload = [
+        {
+            **spec.to_dict(),
+            "source": "db" if spec.pattern in db_patterns else "yaml",
+        }
+        for spec in specs
+    ]
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+async def _prices_sync(dry_run: bool) -> None:
+    """Apply the declarative price list to the database."""
+    from taskhub.prices import load_prices
+
+    async with session_scope() as session:
+        specs = load_prices().to_specs()
+        report = await sync_prices_service(session, specs, dry_run=dry_run)
+        if not dry_run:
+            await session.commit()
+    payload = report.to_dict()
+    payload["dry_run"] = dry_run
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+async def _economics(
+    project: str | None,
+    group_by: str,
+    output_format: str,
+    bucket: str,
+) -> None:
+    """Print the money view of the agent usage."""
+    async with session_scope() as session:
+        if output_format == "summary":
+            payload: Any = await economics_summary_service(session, project_slug=project)
+        elif output_format == "series":
+            payload = await cost_series_service(session, project_slug=project, bucket=bucket)
+        else:
+            payload = await economics_report_service(
+                session, project_slug=project, group_by=group_by
+            )
+    if output_format == "markdown":
+        print(_economics_markdown(payload))
+        return
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _economics_markdown(payload: Any) -> str:
+    """Render an economics report as a small markdown table."""
+    if isinstance(payload, dict):
+        lines = ["| metric | value |", "|---|---|"]
+        for key, value in payload.items():
+            if isinstance(value, (int, float, str)) or value is None:
+                lines.append(f"| {key} | {value} |")
+        return "\n".join(lines)
+    lines = ["| key | token cost | total cost | sessions |", "|---|---|---|---|"]
+    for row in payload:
+        lines.append(
+            f"| {row['key']} | {row.get('token_cost_usd')} | "
+            f"{row.get('total_cost_usd')} | {row.get('sessions')} |"
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="taskhub")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -188,6 +269,27 @@ def main() -> None:
     )
     export_parser.add_argument("--limit", type=int, default=500)
     export_parser.add_argument("--out", default=None)
+    prices_parser = subparsers.add_parser("prices", help="show or synchronise the model price list")
+    prices_sub = prices_parser.add_subparsers(dest="prices_command", required=True)
+    prices_list_parser = prices_sub.add_parser("list", help="show the known model prices")
+    prices_list_parser.add_argument("--model", default=None)
+    prices_sync_parser = prices_sub.add_parser("sync", help="apply the price list to the database")
+    prices_sync_parser.add_argument(
+        "--dry-run",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="preview the changes (default: on)",
+    )
+    economics_parser = subparsers.add_parser("economics", help="show what the agents cost")
+    economics_parser.add_argument("--project", default=None)
+    economics_parser.add_argument("--group-by", default="model")
+    economics_parser.add_argument(
+        "--format",
+        dest="output_format",
+        choices=("json", "markdown", "summary", "series"),
+        default="json",
+    )
+    economics_parser.add_argument("--bucket", choices=("day", "week", "month"), default="day")
     args = parser.parse_args()
 
     if args.command == "init-db":
@@ -206,6 +308,13 @@ def main() -> None:
         asyncio.run(_import_all(args.dry_run, args.no_backup, args.project, args.notes))
     elif args.command == "import-notes":
         asyncio.run(_import_notes(args.dry_run, args.no_backup, not args.no_memory))
+    elif args.command == "prices":
+        if args.prices_command == "list":
+            asyncio.run(_prices_list(args.model))
+        else:
+            asyncio.run(_prices_sync(args.dry_run))
+    elif args.command == "economics":
+        asyncio.run(_economics(args.project, args.group_by, args.output_format, args.bucket))
     elif args.command == "export":
         asyncio.run(
             _export(
