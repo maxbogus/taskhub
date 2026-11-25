@@ -62,7 +62,36 @@ writing posts (`taskhub export`, MCP `export_notes`). Per-folder source map in
 ## Requirements
 
 - Python 3.12
-- [uv](https://docs.astral.sh/uv/)
+- [uv](https://docs.astral.sh/uv/) (or any PEP 517 installer)
+
+## Install
+
+```bash
+uv tool install taskhub-mcp      # or: pipx install taskhub-mcp / pip install taskhub-mcp
+taskhub init-db
+taskhub-mcp                      # MCP server over stdio
+```
+
+The PyPI distribution is **`taskhub-mcp`**; the import package is `taskhub` and
+the console scripts are `taskhub`, `taskhub-mcp` and `taskhub-web`. From a
+checkout, `uv sync --extra dev` plus `uv run taskhub ...` is equivalent.
+
+Try it on a throwaway database before touching your own:
+
+```bash
+uv run taskhub ...                 # in a checkout
+make demo                          # seeds /tmp/taskhub-demo, prints the dashboard command
+```
+
+## Documentation
+
+| File | Content |
+|---|---|
+| `docs/AGENT_API.md` | the smallest MCP contract an agent needs |
+| `docs/COLLECTION_MAP.md` | where tasks and notes are collected from |
+| `docs/PROJECT_SYNC.md` | registry policy (slug immutable, root path moves) and the 2026-11 migration |
+| `docs/HISTORY.md` | milestone narrative M1–M16 |
+| `CHANGELOG.md` | released versions |
 
 ## Setup
 
