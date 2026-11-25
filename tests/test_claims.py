@@ -66,9 +66,7 @@ async def test_expired_claim_does_not_block(session: AsyncSession) -> None:
     from taskhub.repo.agents import get_or_create_agent
 
     agent = await get_or_create_agent(session, name="agent-1")
-    await claim_item(
-        session, work_item_id=item.id, agent_id=agent.id, ttl_minutes=-1
-    )
+    await claim_item(session, work_item_id=item.id, agent_id=agent.id, ttl_minutes=-1)
     await session.commit()
 
     result = await acquire_claim(session, item_id=item.id, agent_name="agent-2")
@@ -106,9 +104,7 @@ async def test_list_active_claims_filters_by_project(
     session: AsyncSession,
 ) -> None:
     project = await _project(session)
-    other = await create_project(
-        session, slug="q", name="Q", root_path="/tmp/q"
-    )
+    other = await create_project(session, slug="q", name="Q", root_path="/tmp/q")
     item = await create_item(session, project_id=project.id, title="Task")
     other_item = await create_item(session, project_id=other.id, title="Other")
     await session.commit()

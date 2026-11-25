@@ -90,9 +90,7 @@ def _flow_config(project: Project) -> dict[str, Any]:
     return flow if isinstance(flow, dict) else {}
 
 
-def allowed_targets(
-    project: Project, role: AgentRole, current: WorkStatus
-) -> set[WorkStatus]:
+def allowed_targets(project: Project, role: AgentRole, current: WorkStatus) -> set[WorkStatus]:
     """Return roles' allowed target statuses, with project overrides."""
 
     roles = _flow_config(project).get("roles")
@@ -129,9 +127,7 @@ async def blocking_items(session: AsyncSession, item_id: str) -> list[str]:
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def gate_errors(
-    session: AsyncSession, item: WorkItem, target: WorkStatus
-) -> list[str]:
+async def gate_errors(session: AsyncSession, item: WorkItem, target: WorkStatus) -> list[str]:
     """Return human-readable gate failures for a target status."""
 
     errors: list[str] = []
@@ -250,9 +246,7 @@ async def change_status(
     )
 
 
-async def workflow_info(
-    session: AsyncSession, item_id: str, role: str = "agent"
-) -> dict[str, Any]:
+async def workflow_info(session: AsyncSession, item_id: str, role: str = "agent") -> dict[str, Any]:
     """Describe the current status, allowed targets and gate errors."""
 
     item = await get_item(session, item_id)
@@ -278,4 +272,3 @@ async def workflow_info(
         "allowed": sorted(target.value for target in allowed),
         "gates": gates,
     }
-

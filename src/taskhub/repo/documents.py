@@ -62,7 +62,5 @@ async def list_documents(
         stmt = stmt.where(Document.type == doc_type)
     if not include_archived:
         stmt = stmt.where(Document.archived_at.is_(None))
-    stmt = (
-        stmt.order_by(Document.type.asc(), Document.slug.asc()).limit(limit)
-    )
+    stmt = stmt.order_by(Document.type.asc(), Document.slug.asc()).limit(limit)
     return list((await session.execute(stmt)).scalars().all())

@@ -168,9 +168,7 @@ def _extract_repos_and_subdirs(
         path = str(entry.get("path", ""))
         parts = path.lstrip("/").split("/")
         index = 0
-        while index < len(parts) and (
-            parts[index] in HOME_ALIASES or parts[index] in SKIP_DIRS
-        ):
+        while index < len(parts) and (parts[index] in HOME_ALIASES or parts[index] in SKIP_DIRS):
             index += 1
         if index >= len(parts):
             continue
@@ -196,9 +194,7 @@ def analyze_task(task_folder: Path) -> TaskAnalysis | None:
     if metadata is None or not isinstance(conversation, list):
         return None
 
-    repos, subdirs = _extract_repos_and_subdirs(
-        metadata.get("files_in_context", [])
-    )
+    repos, subdirs = _extract_repos_and_subdirs(metadata.get("files_in_context", []))
     timestamps: list[int] = sorted(
         int(message["ts"])
         for message in conversation
@@ -239,12 +235,8 @@ def analyze_task(task_folder: Path) -> TaskAnalysis | None:
         subdirs_touched=sorted(subdirs),
         started_at=ts_to_dt(timestamps[0]) if timestamps else None,
         ended_at=ts_to_dt(timestamps[-1]) if timestamps else None,
-        duration_ms=(
-            timestamps[-1] - timestamps[0] if len(timestamps) >= 2 else 0
-        ),
-        active_ms=(
-            int(_active_seconds(timestamps) * 1000) if len(timestamps) >= 2 else 0
-        ),
+        duration_ms=(timestamps[-1] - timestamps[0] if len(timestamps) >= 2 else 0),
+        active_ms=(int(_active_seconds(timestamps) * 1000) if len(timestamps) >= 2 else 0),
         message_count=len(conversation),
         models=models,
     )
@@ -255,9 +247,7 @@ def scan_tasks(
 ) -> list[TaskAnalysis]:
     """Scan Cline task folders, newest first."""
 
-    root = (
-        Path(tasks_root).expanduser() if tasks_root is not None else DEFAULT_TASKS_ROOT
-    )
+    root = Path(tasks_root).expanduser() if tasks_root is not None else DEFAULT_TASKS_ROOT
     if not root.is_dir():
         return []
 
@@ -291,11 +281,7 @@ async def ingest_cline_tasks(
 
     report = IngestReport()
     projects = list(
-        (
-            await session.execute(
-                select(Project).where(Project.archived_at.is_(None))
-            )
-        )
+        (await session.execute(select(Project).where(Project.archived_at.is_(None))))
         .scalars()
         .all()
     )
@@ -636,6 +622,3 @@ async def metrics_report(
         entry["active_hours"] = round(float(entry["active_ms"]) / 3_600_000.0, 4)
         result.append(entry)
     return sorted(result, key=lambda entry: entry["cost_usd"], reverse=True)
-
-
-

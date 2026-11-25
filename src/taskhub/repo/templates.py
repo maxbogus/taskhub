@@ -16,8 +16,7 @@ async def get_template(
     stmt = select(TaskTemplate).where(TaskTemplate.name == name)
     if project_id is not None:
         stmt = stmt.where(
-            (TaskTemplate.project_id == project_id)
-            | (TaskTemplate.project_id.is_(None))
+            (TaskTemplate.project_id == project_id) | (TaskTemplate.project_id.is_(None))
         )
         stmt = stmt.order_by(TaskTemplate.project_id.is_(None).asc())
     else:
@@ -43,9 +42,7 @@ async def upsert_template(
         stmt = stmt.where(TaskTemplate.project_id == project_id)
     existing = (await session.execute(stmt)).scalar_one_or_none()
     if existing is None:
-        template = TaskTemplate(
-            project_id=project_id, name=name, body=body, type=type
-        )
+        template = TaskTemplate(project_id=project_id, name=name, body=body, type=type)
         session.add(template)
         await session.flush()
         return template, True
@@ -63,8 +60,7 @@ async def list_templates(
     stmt = select(TaskTemplate)
     if project_id is not None:
         stmt = stmt.where(
-            (TaskTemplate.project_id == project_id)
-            | (TaskTemplate.project_id.is_(None))
+            (TaskTemplate.project_id == project_id) | (TaskTemplate.project_id.is_(None))
         )
     stmt = stmt.order_by(TaskTemplate.name.asc())
     return list((await session.execute(stmt)).scalars().all())

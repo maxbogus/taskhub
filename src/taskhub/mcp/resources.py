@@ -98,9 +98,7 @@ async def project_backlog(slug: str) -> str:
             .scalars()
             .all()
         )
-        groups: dict[WorkStatus, list[WorkItem]] = {
-            status: [] for status in WorkStatus
-        }
+        groups: dict[WorkStatus, list[WorkItem]] = {status: [] for status in WorkStatus}
         for item in rows:
             groups[item.status].append(item)
 
@@ -130,16 +128,12 @@ async def project_specs(slug: str) -> str:
         project = await get_project_by_slug(session, slug)
         if project is None:
             return f"# Not found\n\nProject `{slug}` does not exist."
-        documents = await repo_list_documents(
-            session, project.id, doc_type=DocType.spec
-        )
+        documents = await repo_list_documents(session, project.id, doc_type=DocType.spec)
         lines = [f"# Specs — {project.name}", ""]
         if not documents:
             lines.append("_No spec documents yet._")
         for document in documents:
-            lines.append(
-                f"- `{document.slug}` — {document.title} (v{document.version})"
-            )
+            lines.append(f"- `{document.slug}` — {document.title} (v{document.version})")
         return "\n".join(lines)
 
 

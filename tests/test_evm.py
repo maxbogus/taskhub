@@ -47,9 +47,7 @@ class TestEstimateAtCompletion:
         assert calc.estimate_at_completion(400, 600) == Decimal("1000.00")
 
     def test_eac_from_cpi(self, calc: EVMCalculator) -> None:
-        assert calc.estimate_at_completion_from_cpi(
-            1000, Decimal("0.8")
-        ) == Decimal("1250.00")
+        assert calc.estimate_at_completion_from_cpi(1000, Decimal("0.8")) == Decimal("1250.00")
 
     def test_eac_from_cpi_none_when_cpi_undefined(self, calc: EVMCalculator) -> None:
         assert calc.estimate_at_completion_from_cpi(1000, None) is None
@@ -82,9 +80,7 @@ class TestVarianceAtCompletion:
 
 class TestEvaluate:
     def test_returns_consistent_snapshot(self, calc: EVMCalculator) -> None:
-        result = calc.evaluate(
-            earned_value=800, actual_cost=1000, budget_at_completion=2000
-        )
+        result = calc.evaluate(earned_value=800, actual_cost=1000, budget_at_completion=2000)
         assert isinstance(result, EVMMetrics)
         assert result.cpi == Decimal("0.8000")
         assert result.eac == Decimal("2500.00")
@@ -92,9 +88,7 @@ class TestEvaluate:
         assert result.vac == Decimal("-500.00")
 
     def test_snapshot_with_undefined_cpi(self, calc: EVMCalculator) -> None:
-        result = calc.evaluate(
-            earned_value=0, actual_cost=0, budget_at_completion=2000
-        )
+        result = calc.evaluate(earned_value=0, actual_cost=0, budget_at_completion=2000)
         assert result.cpi is None
         assert result.eac == Decimal("2000.00")
         assert result.etc == Decimal("2000.00")

@@ -85,11 +85,7 @@ def _rice_meta(front: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(rice, dict):
         return None
     confidence = rice.get("confidence")
-    if (
-        isinstance(confidence, (int, float))
-        and not isinstance(confidence, bool)
-        and confidence > 1
-    ):
+    if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) and confidence > 1:
         confidence = confidence / 100
     return {
         "R": rice.get("reach"),
@@ -120,9 +116,7 @@ async def apply_template(
 
     front, body = split_frontmatter(template.body)
     rendered_body = render(body, variables)
-    resolved_title = (
-        title or front.get("title") or front.get("name") or template.name
-    )
+    resolved_title = title or front.get("title") or front.get("name") or template.name
     meta: dict[str, Any] = {
         "template": template.name,
         "template_type": template.type,

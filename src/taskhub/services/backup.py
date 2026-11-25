@@ -14,9 +14,7 @@ from taskhub.db import sqlite_file_path
 def _backup_files(backup_dir: Path) -> list[Path]:
     """Return backup files newest-first (timestamped names sort chronologically)."""
 
-    return sorted(
-        backup_dir.glob("taskhub-*.db"), key=lambda path: path.name, reverse=True
-    )
+    return sorted(backup_dir.glob("taskhub-*.db"), key=lambda path: path.name, reverse=True)
 
 
 def prune_backups(backup_dir: Path, keep: int) -> list[Path]:
@@ -34,9 +32,7 @@ def prune_backups(backup_dir: Path, keep: int) -> list[Path]:
     return removed
 
 
-async def backup_sqlite(
-    db_url: str, backup_dir: Path, *, keep: int | None = None
-) -> Path:
+async def backup_sqlite(db_url: str, backup_dir: Path, *, keep: int | None = None) -> Path:
     """Create a consistent online SQLite backup with ``VACUUM INTO``."""
 
     db_path = sqlite_file_path(db_url)

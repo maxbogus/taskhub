@@ -24,9 +24,7 @@ async def test_get_next_item_returns_highest_priority(session: AsyncSession) -> 
 
 async def test_get_next_item_skips_blocked_items(session: AsyncSession) -> None:
     project = await create_project(session, slug="p", name="P", root_path="/tmp/p")
-    blocker = await create_item(
-        session, project_id=project.id, title="Blocker", priority=2
-    )
+    blocker = await create_item(session, project_id=project.id, title="Blocker", priority=2)
     await create_item(
         session,
         project_id=project.id,

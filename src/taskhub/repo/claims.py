@@ -78,9 +78,7 @@ async def list_active_claims(
     """List unexpired, unreleased claims, optionally scoped to a project."""
 
     now = now or datetime.now(UTC).replace(tzinfo=None)
-    stmt = select(Claim).where(
-        Claim.released_at.is_(None), Claim.expires_at > now
-    )
+    stmt = select(Claim).where(Claim.released_at.is_(None), Claim.expires_at > now)
     if project_id is not None:
         stmt = stmt.join(WorkItem, WorkItem.id == Claim.work_item_id).where(
             WorkItem.project_id == project_id

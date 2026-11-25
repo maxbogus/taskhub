@@ -17,9 +17,7 @@ RICE = {"rice": {"R": 10, "I": 2, "C": 0.8, "E": 4}}
 
 
 async def _project(session: AsyncSession, slug: str = "p"):
-    project = await create_project(
-        session, slug=slug, name=slug, root_path=f"/tmp/{slug}"
-    )
+    project = await create_project(session, slug=slug, name=slug, root_path=f"/tmp/{slug}")
     await session.commit()
     return project
 
@@ -36,9 +34,7 @@ async def test_ready_requires_estimate_and_rice(session: AsyncSession) -> None:
     item.meta = RICE
     await session.commit()
 
-    result = await change_status(
-        session, item.id, "ready", role="agent", actor="cline-agent"
-    )
+    result = await change_status(session, item.id, "ready", role="agent", actor="cline-agent")
     await session.commit()
 
     assert result.from_status == "backlog"
@@ -85,9 +81,7 @@ async def test_agent_cannot_complete_review(session: AsyncSession) -> None:
     with pytest.raises(FlowError, match="not allowed"):
         await change_status(session, item.id, "done", role="agent")
 
-    result = await change_status(
-        session, item.id, "done", role="reviewer", actor="reviewer-1"
-    )
+    result = await change_status(session, item.id, "done", role="reviewer", actor="reviewer-1")
     await session.commit()
 
     assert result.to_status == "done"

@@ -170,7 +170,9 @@ async def test_sync_archives_duplicate_when_notes_are_copies(
     keeper = await _project(
         session, slug="data-service", root_path=shared, items=2, notes=["same note"]
     )
-    loser = await _project(session, slug="legal-data-service", root_path=shared, notes=["same note"])
+    loser = await _project(
+        session, slug="legal-data-service", root_path=shared, notes=["same note"]
+    )
 
     report = await sync_projects(session, tmp_path, archive_duplicates=True)
 
@@ -189,7 +191,9 @@ async def test_sync_refuses_duplicate_archive_when_notes_are_unique(
     shared = tmp_path / "data-service"
     _seed_sources(shared)
     await _project(session, slug="data-service", root_path=shared, items=1)
-    loser = await _project(session, slug="legal-data-service", root_path=shared, notes=["only here"])
+    loser = await _project(
+        session, slug="legal-data-service", root_path=shared, notes=["only here"]
+    )
 
     report = await sync_projects(session, tmp_path, archive_duplicates=True)
 
@@ -214,9 +218,7 @@ async def test_sync_archives_missing_root_when_flag_is_on(
 async def test_sync_refuses_archiving_missing_root_with_items(
     session: AsyncSession, tmp_path: Path
 ) -> None:
-    project = await _project(
-        session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=1
-    )
+    project = await _project(session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=1)
 
     report = await sync_projects(session, tmp_path, archive_missing=True)
 
@@ -229,9 +231,7 @@ async def test_sync_refuses_archiving_missing_root_with_items(
 async def test_sync_moves_project_root_and_keeps_data(
     session: AsyncSession, tmp_path: Path
 ) -> None:
-    project = await _project(
-        session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=2
-    )
+    project = await _project(session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=2)
     moved_to = tmp_path / "career" / "legacy-app"
     _seed_sources(moved_to)
 
@@ -271,9 +271,7 @@ async def test_audit_projects_reports_health(session: AsyncSession, tmp_path: Pa
     _seed_sources(shared)
     await _project(session, slug="data-service", root_path=shared, items=2)
     await _project(session, slug="legal-data-service", root_path=shared)
-    await _project(
-        session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=3
-    )
+    await _project(session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=3)
     _seed_sources(tmp_path / "fresh")
 
     report = await audit_projects(session, tmp_path)
@@ -345,7 +343,9 @@ async def test_sync_skips_moves_for_archived_projects(
     project = await _project(session, slug="legal-data-service", root_path=target)
     await archive_project(session, "legal-data-service")
 
-    report = await sync_projects(session, tmp_path, moves={"legal-data-service": "legal/data-service"})
+    report = await sync_projects(
+        session, tmp_path, moves={"legal-data-service": "legal/data-service"}
+    )
 
     await session.refresh(project)
     assert project.archived_at is not None

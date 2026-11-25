@@ -41,9 +41,7 @@ async def test_list_notes_filters_by_item_and_kind(session: AsyncSession) -> Non
     project = await _project(session)
     item = await create_item(session, project_id=project.id, title="Task")
     await session.commit()
-    await add_note(
-        session, project_id=project.id, content="project note", kind=NoteKind.insight
-    )
+    await add_note(session, project_id=project.id, content="project note", kind=NoteKind.insight)
     await add_note(
         session,
         project_id=project.id,
@@ -62,9 +60,7 @@ async def test_list_notes_filters_by_item_and_kind(session: AsyncSession) -> Non
 
 async def test_search_notes_matches_substring(session: AsyncSession) -> None:
     project = await _project(session)
-    await add_note(
-        session, project_id=project.id, content="blocked by Postgres migration"
-    )
+    await add_note(session, project_id=project.id, content="blocked by Postgres migration")
     await add_note(session, project_id=project.id, content="unrelated note")
     await session.commit()
 

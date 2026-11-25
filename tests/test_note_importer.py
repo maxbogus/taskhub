@@ -181,4 +181,3 @@ async def test_parse_jsonl_tolerates_dict_fields(tmp_path: Path) -> None:
 
     assert len(notes) == 1
     assert "T-9" in notes[0].task_ids
-

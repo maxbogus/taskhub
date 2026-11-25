@@ -35,11 +35,7 @@ def _write_task(
 ) -> Path:
     folder = root / task_id
     folder.mkdir(parents=True)
-    metadata = {
-        "files_in_context": [
-            {"path": f"/home/user/Repositories/{repo}/src/app.py"}
-        ]
-    }
+    metadata = {"files_in_context": [{"path": f"/home/user/Repositories/{repo}/src/app.py"}]}
     (folder / "task_metadata.json").write_text(json.dumps(metadata))
     conversation = [
         {"role": "user", "ts": 1_000_000_000_000, "content": "hi"},
@@ -89,9 +85,7 @@ def test_analyze_task_extracts_metrics(tmp_path: Path) -> None:
     assert analysis.message_count == 3
 
 
-async def test_ingest_is_idempotent(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_ingest_is_idempotent(session: AsyncSession, tmp_path: Path) -> None:
     tasks_root = tmp_path / "cline"
     _write_task(tasks_root, "1001")
     project = await create_project(
@@ -123,9 +117,7 @@ async def test_ingest_is_idempotent(
     assert metrics[0].cost_usd == 0.02
 
 
-async def test_unmapped_task_is_skipped(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_unmapped_task_is_skipped(session: AsyncSession, tmp_path: Path) -> None:
     tasks_root = tmp_path / "cline"
     _write_task(tasks_root, "1002", repo="unknown-repo")
     await create_project(
@@ -142,9 +134,7 @@ async def test_unmapped_task_is_skipped(
     assert report.sessions_created == 0
 
 
-async def test_dry_run_does_not_write(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_dry_run_does_not_write(session: AsyncSession, tmp_path: Path) -> None:
     tasks_root = tmp_path / "cline"
     _write_task(tasks_root, "1003")
     await create_project(

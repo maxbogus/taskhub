@@ -37,9 +37,7 @@ def simulate_duration(
     if random_seed is not None:
         np.random.seed(random_seed)
 
-    sp_totals = np.random.triangular(
-        sp_total_min, sp_total_mode, sp_total_max, n_iterations
-    )
+    sp_totals = np.random.triangular(sp_total_min, sp_total_mode, sp_total_max, n_iterations)
     team_velocity_per_week = velocity_per_fte_per_week * fte_count
 
     durations_weeks: list[int] = []
@@ -69,9 +67,7 @@ def simulate_duration(
             noise = 1.0 + np.random.normal(0, velocity_noise_pct)
             weekly_sp = max(
                 0.1,
-                team_velocity_per_week
-                * noise
-                * (effective_days / WORK_DAYS_PER_WEEK),
+                team_velocity_per_week * noise * (effective_days / WORK_DAYS_PER_WEEK),
             )
             sp_done += weekly_sp
 
@@ -94,9 +90,7 @@ def simulate_duration(
     }
 
 
-def calc_probability_by_target(
-    durations: NDArray[Any], targets: list[int]
-) -> dict[int, float]:
+def calc_probability_by_target(durations: NDArray[Any], targets: list[int]) -> dict[int, float]:
     """Probability of finishing within each target week count."""
 
     return {target: float(np.mean(durations <= target)) for target in targets}

@@ -90,9 +90,7 @@ class EVMCalculator:
     ) -> Decimal:
         """ETC = EAC - AC (negative values are a diagnosis, not an error)."""
 
-        return quantize_money(
-            to_decimal(estimate_at_completion) - to_decimal(actual_cost)
-        )
+        return quantize_money(to_decimal(estimate_at_completion) - to_decimal(actual_cost))
 
     def variance_at_completion(
         self,
@@ -101,9 +99,7 @@ class EVMCalculator:
     ) -> Decimal:
         """VAC = BAC - EAC; negative means overrun."""
 
-        return quantize_money(
-            to_decimal(budget_at_completion) - to_decimal(estimate_at_completion)
-        )
+        return quantize_money(to_decimal(budget_at_completion) - to_decimal(estimate_at_completion))
 
     def evaluate(
         self,

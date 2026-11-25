@@ -150,9 +150,7 @@ def test_is_excluded_matches_globs(tmp_path: Path) -> None:
     assert not is_excluded("workshops/idea-to-spec", config)
 
 
-def test_discover_projects_skips_excluded_directories(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_discover_projects_skips_excluded_directories(tmp_path: Path, monkeypatch) -> None:
     """Snapshots and archive copies never become projects."""
 
     from taskhub.services.projects import discover_projects
@@ -162,9 +160,7 @@ def test_discover_projects_skips_excluded_directories(
         yaml.safe_dump(
             {
                 "discovery": {"exclude": ["snapshots/*", "workshops/idea-to-spec"]},
-                "sources": [
-                    {"name": "tasks", "kind": "task", "paths": [["docs", "backlog"]]}
-                ],
+                "sources": [{"name": "tasks", "kind": "task", "paths": [["docs", "backlog"]]}],
             }
         ),
         encoding="utf-8",

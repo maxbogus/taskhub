@@ -22,9 +22,7 @@ async def test_resolve_scope_by_slug(session: AsyncSession) -> None:
 
 async def test_resolve_scope_by_cwd_longest_prefix(session: AsyncSession) -> None:
     await create_project(session, slug="root", name="Root", root_path="/home/user/repos")
-    await create_project(
-        session, slug="nested", name="Nested", root_path="/home/user/repos/nested"
-    )
+    await create_project(session, slug="nested", name="Nested", root_path="/home/user/repos/nested")
     await session.commit()
 
     scope = await resolve_scope(session, cwd="/home/user/repos/nested/src")

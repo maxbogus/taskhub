@@ -51,17 +51,11 @@ def _median_hours(values: list[float]) -> float | None:
     return round(median(values), 4) if values else None
 
 
-async def collect_project_metrics(
-    session: AsyncSession, project_id: str
-) -> ProjectMetrics:
+async def collect_project_metrics(session: AsyncSession, project_id: str) -> ProjectMetrics:
     """Compute project metrics in a fixed number of queries."""
 
     items = list(
-        (
-            await session.execute(
-                select(WorkItem).where(WorkItem.project_id == project_id)
-            )
-        )
+        (await session.execute(select(WorkItem).where(WorkItem.project_id == project_id)))
         .scalars()
         .all()
     )
@@ -74,8 +68,7 @@ async def collect_project_metrics(
     open_items = [
         item
         for item in items
-        if item.status
-        not in (WorkStatus.done, WorkStatus.cancelled, WorkStatus.archived)
+        if item.status not in (WorkStatus.done, WorkStatus.cancelled, WorkStatus.archived)
     ]
 
     estimate_done = round(sum(item.estimate_hours or 0.0 for item in done), 4)
@@ -116,9 +109,7 @@ async def collect_project_metrics(
         ).scalar_one()
 
     actual_hours_done = _ms_to_hours(float(actual_done_ms or 0))
-    variance_ratio = (
-        round(actual_hours_done / estimate_done, 4) if estimate_done > 0 else None
-    )
+    variance_ratio = round(actual_hours_done / estimate_done, 4) if estimate_done > 0 else None
 
     cycle_values = [
         _hours((item.done_at - item.started_at).total_seconds())

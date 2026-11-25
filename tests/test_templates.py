@@ -81,20 +81,14 @@ async def test_import_is_idempotent(session: AsyncSession, tmp_path: Path) -> No
     assert {template.name for template in templates} == {"AI-777", "plain"}
 
 
-async def test_import_reports_missing_sources(
-    session: AsyncSession, tmp_path: Path
-) -> None:
-    report = await import_templates(
-        session, source_roots=[tmp_path / "does-not-exist"]
-    )
+async def test_import_reports_missing_sources(session: AsyncSession, tmp_path: Path) -> None:
+    report = await import_templates(session, source_roots=[tmp_path / "does-not-exist"])
 
     assert report.imported == 0
     assert report.missing_sources
 
 
-async def test_apply_template_maps_frontmatter(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_apply_template_maps_frontmatter(session: AsyncSession, tmp_path: Path) -> None:
     root = _template_root(tmp_path)
     project = await _project(session)
     await import_templates(session, source_roots=[root])

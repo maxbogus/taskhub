@@ -18,15 +18,11 @@ async def test_backup_sqlite_copies_data(tmp_path: Path) -> None:
         await connection.execute("INSERT INTO t (name) VALUES ('x')")
         await connection.commit()
 
-    target = await backup_sqlite(
-        f"sqlite+aiosqlite:///{db_path}", tmp_path / "backups"
-    )
+    target = await backup_sqlite(f"sqlite+aiosqlite:///{db_path}", tmp_path / "backups")
 
     assert target.exists()
     with sqlite3.connect(target) as connection:
-        tables = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         assert ("t",) in tables
         assert connection.execute("SELECT name FROM t").fetchone() == ("x",)
 

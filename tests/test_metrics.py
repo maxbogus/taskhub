@@ -25,9 +25,7 @@ async def test_collect_project_metrics(session: AsyncSession) -> None:
     done.created_at = datetime(2026, 1, 1, 8)
     done.started_at = datetime(2026, 1, 1, 9)
     done.done_at = datetime(2026, 1, 1, 11)
-    await create_item(
-        session, project_id=project.id, title="Open", estimate_hours=6.0
-    )
+    await create_item(session, project_id=project.id, title="Open", estimate_hours=6.0)
     agent = Agent(name="agent-metrics")
     session.add(agent)
     await session.flush()

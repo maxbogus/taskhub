@@ -56,9 +56,7 @@ async def acquire_claim(
     return ClaimResult(claim=claim, item=item, agent=agent, renewed=False)
 
 
-async def release_claim(
-    session: AsyncSession, *, item_id: str, agent_name: str
-) -> int:
+async def release_claim(session: AsyncSession, *, item_id: str, agent_name: str) -> int:
     """Release all active leases held by the agent on an item."""
 
     agent = await get_agent_by_name(session, agent_name)

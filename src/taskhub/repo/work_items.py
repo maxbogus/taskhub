@@ -68,19 +68,14 @@ async def list_items(
     status: WorkStatus | None = None,
     limit: int = 100,
 ) -> list[WorkItem]:
-    stmt = select(WorkItem).where(
-        WorkItem.project_id == project_id, WorkItem.archived_at.is_(None)
-    )
+    stmt = select(WorkItem).where(WorkItem.project_id == project_id, WorkItem.archived_at.is_(None))
     if status is not None:
         stmt = stmt.where(WorkItem.status == status)
-    stmt = (
-        stmt.order_by(
-            WorkItem.priority.asc(),
-            WorkItem.order_index.asc(),
-            WorkItem.created_at.asc(),
-        )
-        .limit(limit)
-    )
+    stmt = stmt.order_by(
+        WorkItem.priority.asc(),
+        WorkItem.order_index.asc(),
+        WorkItem.created_at.asc(),
+    ).limit(limit)
     return list((await session.execute(stmt)).scalars().all())
 
 
