@@ -317,3 +317,37 @@ async def test_sync_dry_run_previews_duplicates_created_by_a_move(
     preview = {entry["slug"]: entry for entry in report.archived}
     assert preview["legal-mlaw-rag"]["reason"] == "duplicate"
     assert preview["legal-mlaw-rag"]["dry_run"] is True
+
+
+async def test_sync_moves_accept_paths_relative_to_the_root(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """A moves file stays machine-independent: targets resolve against --root."""
+
+    project = await _project(session, slug="vkrmgimo", root_path=tmp_path / "vkrMgimo")
+    target = tmp_path / "study" / "vkrMgimo"
+    target.mkdir(parents=True)
+
+    report = await sync_projects(session, tmp_path, moves={"vkrmgimo": "study/vkrMgimo"})
+
+    await session.refresh(project)
+    assert project.root_path == str(target)
+    assert report.moved[0]["to"] == str(target)
+
+
+async def test_sync_skips_moves_for_archived_projects(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """A re-run of a migration file must not resurrect an archived twin."""
+
+    target = tmp_path / "legal" / "mlaw-rag"
+    target.mkdir(parents=True)
+    project = await _project(session, slug="legal-mlaw-rag", root_path=target)
+    await archive_project(session, "legal-mlaw-rag")
+
+    report = await sync_projects(session, tmp_path, moves={"legal-mlaw-rag": "legal/mlaw-rag"})
+
+    await session.refresh(project)
+    assert project.archived_at is not None
+    skipped = {entry["slug"]: entry for entry in report.skipped}
+    assert skipped["legal-mlaw-rag"]["reason"] == "archived"

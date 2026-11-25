@@ -160,9 +160,7 @@ def _is_nested_project(directory: Path, depth: int) -> bool:
     return _looks_like_project(directory)
 
 
-def _walk(
-    root: Path, base: Path, depth: int, max_depth: int
-) -> list[tuple[Path, list[str]]]:
+def _walk(root: Path, base: Path, depth: int, max_depth: int) -> list[tuple[Path, list[str]]]:
     found: list[tuple[Path, list[str]]] = []
     try:
         entries = sorted(base.iterdir())
@@ -328,6 +326,7 @@ async def _apply_moves(
     moves: Mapping[str, str | Path],
     report: RegisterReport,
     *,
+    base: Path,
     dry_run: bool,
 ) -> None:
     """Re-point slugs at their new checkouts before discovery runs."""
@@ -335,9 +334,12 @@ async def _apply_moves(
     for slug, target in moves.items():
         project = await get_project_by_slug(session, slug)
         if project is None:
-            report.skipped.append({"slug": slug, "reason": "unknown_slug"})
+            archived = await get_project_by_slug(session, slug, include_archived=True)
+            reason = "archived" if archived is not None else "unknown_slug"
+            report.skipped.append({"slug": slug, "reason": reason})
             continue
-        target_path = _resolved(target)
+        raw = Path(target).expanduser()
+        target_path = _resolved(raw if raw.is_absolute() else base / raw)
         if not target_path.is_dir():
             report.skipped.append(
                 {"slug": slug, "target": str(target_path), "reason": "path_not_found"}
@@ -431,7 +433,7 @@ async def sync_projects(
 
     report = RegisterReport()
     if moves:
-        await _apply_moves(session, moves, report, dry_run=dry_run)
+        await _apply_moves(session, moves, report, base=base, dry_run=dry_run)
         if not dry_run:
             await session.flush()
 
