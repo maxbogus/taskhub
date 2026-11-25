@@ -1,0 +1,35 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write # Trusted Publishing: no API token is stored
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Type-check
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest -q -m "not slow"
+      - name: Build
+        run: uv build
+      - name: Check the wheel
+        run: uv run python scripts/check_wheel.py dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

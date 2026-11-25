@@ -1,7 +1,7 @@
 # TaskHub — developer entry points. Run `make` or `make help`.
 
 .DEFAULT_GOAL := help
-.PHONY: help install init-db test test-fast test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects sync-dry sync audit import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock eval-agent eval-seed
+.PHONY: help install init-db test test-fast test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects sync-dry sync audit build wheel-check publish-dry release-check import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock eval-agent eval-seed
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## / — /' | sed 's/^/  make /'
@@ -36,7 +36,7 @@ format-check: ## Ruff format check (no changes)
 type-check: ## mypy (strict)
 	uv run mypy
 
-check: lint type-check test ## Run all quality gates
+check: lint format-check type-check test ## Run all quality gates
 
 secrets: ## Scan full git history for secrets (gitleaks)
 	gitleaks detect --no-banner
@@ -67,6 +67,27 @@ import-notes: ## Import ledgers/notes (+ ~/.cline/memory)
 
 export: ## Export a markdown digest (PROJECT=<slug>)
 	uv run taskhub export $(if $(PROJECT),--project $(PROJECT),) --format markdown
+
+# ---------- Release (M16) ----------
+build: ## Build the sdist and the wheel into dist/
+	uv build
+
+wheel-check: build ## Verify the wheel ships the YAML configs and metadata
+	@uv run python scripts/check_wheel.py dist
+
+publish-dry: ## Metadata + upload dry run (nothing is published)
+	@uv publish --dry-run --token dummy
+
+release-check: check wheel-check publish-dry ## Everything a release needs locally
+	@echo "release-check: OK — tag the commit to let CI publish"
+
+demo: ## Seed a throwaway demo database in /tmp (does not touch ~/.taskhub)
+	@rm -rf /tmp/taskhub-demo /tmp/taskhub-eval-demo
+	@mkdir -p /tmp/taskhub-eval-demo/docs/backlog
+	@printf '# Demo project\\n\\nSeeded by `make demo`; safe to delete.\\n' > /tmp/taskhub-eval-demo/README.md
+	@TASKHUB_HOME=/tmp/taskhub-demo uv run taskhub init-db
+	@TASKHUB_HOME=/tmp/taskhub-demo uv run python scripts/eval_seed.py
+	@echo "demo ready: TASKHUB_HOME=/tmp/taskhub-demo uv run taskhub-web  # dashboard on :8000"
 
 backup: ## Online SQLite backup with retention
 	uv run taskhub backup --keep 7
