@@ -9,14 +9,14 @@
 
 ## Why this exists
 
-The 2026-11-18 migration imported tasks and ledgers from the old flat
-`~/Repositories/*` layout and then deleted the source files (for example
-`career/candidate-tracker`: `f103034 chore(backlog): remove docs/backlog after
-TaskHub migration`). The portfolio was then reorganised into `career/`,
-`hackathons/`, `legal/`, `work_projects/`, `study/`, `landings/`, `infra/`,
-`workshops/` — and the registry kept the old paths.
+An earlier import populated the registry from a flat `~/Repositories/*` layout
+and, for several projects, the source files were deleted afterwards (the commit
+message said "remove docs/backlog after TaskHub migration"). The portfolio was
+then reorganised into containers (`career/`, `hackathons/`, `legal/`,
+`work_projects/`, `study/`, `landings/`, `infra/`, `workshops/`) and the registry
+kept the old paths.
 
-Consequences measured on 2026-11-25 before the fix:
+Consequences measured before the fix:
 
 | Metric | Before | After |
 |---|---|---|
@@ -24,12 +24,12 @@ Consequences measured on 2026-11-25 before the fix:
 | Active / archived | 88 / 0 | 61 / 27 |
 | Active with a missing root | 34 | 3 (intentionally detached) |
 | Work items on missing roots | 975 of 1849 (53 %) | 6 of 1849 |
-| Same root registered twice | 1 (`landing`) + 25 twin pairs after a move | 0 |
+| Same root registered twice | 1 + 25 twin pairs after a move | 0 |
 | Identical notes in two projects | 538 extra copies | archived with the twins |
 
 `get_next_item(cwd=...)` resolves the longest matching active root, so those 34
-dead paths answered "no available items" for roughly half the portfolio —
-`legal/mlaw-rag` reported no work while 59 items sat on the dead `mlaw-rag`.
+dead paths answered "no available items" for roughly half the portfolio, while
+their work items sat on projects nobody could resolve.
 
 ## Policy A — re-point, never move work items
 
@@ -42,24 +42,25 @@ dead paths answered "no available items" for roughly half the portfolio —
 4. A project whose root is gone is **detached**: it stays active, keeps its
    history, is flagged in `project.config.detached`, is skipped by the importer
    and is reported instead of silently importing nothing.
-5. `archive-only` is forbidden for datasets migrated on 2026-11-18: for
-   `candidate-tracker` (233 items), `career-platform` (67), `architecturekata`
-   (9), `vkrmgimo` (12) and `syneps-syneps-frontend` (10) the files are gone and
-   the database is the only copy.
+5. `archive-only` is forbidden for the datasets whose files were deleted after
+   the earlier import: the database is the only copy of those items, so hiding
+   them would lose the work from view.
 
 ## Applied on 2026-11-25
 
-Mapping: `scripts/migrations/2026-11-projects.yaml` (30 moves).
+The mapping is machine-specific and lives outside the repository
+(`scripts/migrations/2026-11-projects.yaml`, gitignored): 30 moves with targets
+relative to `--root`.
 
 ```bash
-make backup                     # taskhub-20261125-084337-453296.db
+make backup
 uv run taskhub sync-projects --root ~/Repositories \
   --moves scripts/migrations/2026-11-projects.yaml \
   --archive-duplicates --dry-run          # reviewed first
 uv run taskhub sync-projects --root ~/Repositories \
   --moves scripts/migrations/2026-11-projects.yaml \
   --archive-duplicates
-uv run taskhub archive-project --slug demo --force
+uv run taskhub archive-project --slug <eval-seed> --force
 uv run taskhub import-all --notes --no-backup
 ```
 
@@ -67,21 +68,16 @@ uv run taskhub import-all --notes --no-backup
 |---|---|
 | Projects re-pointed | 30 (25 twins + 5 moves without a twin) |
 | Empty twins archived | 26 |
-| Explicitly archived | `demo` (eval seed under `/tmp/demo`) |
-| Detached (root gone, data kept) | `bot-history`, `chem-trial`, `clients-tatyana-mgimo-school21` |
+| Explicitly archived | 1 (an eval seed project under `/tmp`) |
+| Detached (root gone, data kept) | 3 |
 | Work items preserved | 1849 of 1849 (0 on archived projects) |
 | Duplicate roots among active projects | 0 |
 | Import after the change | 1 created, 56 updated, 1023 skipped, 0 errors, 3 detached |
 
-Spot check — `get_next_item(cwd=…)` after the migration:
-
-| cwd | project | first item |
-|---|---|---|
-| `legal/mlaw-rag` | `mlaw-rag` | `mlaw-rag — Backlog Status & Plan` |
-| `career/candidate-tracker` | `candidate-tracker` | `User model: merge Profile+UserProfile …` |
-| `books` | `books` | `Карта блога @aiscepticism …` |
-| `hackathons/finance_academy` | `finance-academy` | `Перегенерация заявок (PDF) …` |
-| `workshops/idea-to-spec-ai` | `idea-to-spec-ai` | `P8. Eval-покрытие для нового …` |
+Spot check: `get_next_item(cwd=...)` was run in five repositories that used to
+report "no available items"; each now resolves its project and returns the
+first item. The audit (3 detached projects, 0 duplicates, 0 uncovered
+directories) is the regression check.
 
 ## The daily check
 
@@ -94,7 +90,7 @@ uv run taskhub sync-projects --root ~/Repositories --max-depth 3 --dry-run
 ```
 
 `discovery.exclude` in `src/taskhub/sources.yaml` keeps published snapshots
-(`workshops/idea-to-spec-*/framework`) and archive copies (`conf/archive/*`)
+(package snapshots under `workshops/`) and archive copies (`conf/archive/*`)
 out of the registry: they carry the handoff of their source repository and
 would duplicate notes and shadow the real project in scope resolution.
 

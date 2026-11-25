@@ -73,12 +73,12 @@ async def test_import_all_reports_detached_projects_instead_of_silence(
     """A project whose root is gone is reported, not skipped without a trace."""
 
     gone = await create_project(
-        session, slug="chem-trial", name="chem_trial", root_path=str(tmp_path / "chem_trial")
+        session, slug="detached-app", name="detached_app", root_path=str(tmp_path / "detached_app")
     )
 
     report = await import_all(session, [gone], skip_backup=True, dry_run=True)
 
     assert report.totals["detached"] == 1
     assert report.totals["errors"] == 0
-    assert report.projects[0]["slug"] == "chem-trial"
+    assert report.projects[0]["slug"] == "detached-app"
     assert report.projects[0]["detached"] is True

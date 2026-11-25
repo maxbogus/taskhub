@@ -61,9 +61,9 @@ async def test_project_audit_tool_lists_stale(repositories: Path) -> None:
     async with session_scope() as session:
         await create_project(
             session,
-            slug="chem-trial",
-            name="chem_trial",
-            root_path=str(repositories / "chem_trial"),
+            slug="detached-app",
+            name="detached_app",
+            root_path=str(repositories / "detached_app"),
         )
         await session.commit()
 
@@ -71,22 +71,22 @@ async def test_project_audit_tool_lists_stale(repositories: Path) -> None:
 
     assert payload["active"] == 1
     assert payload["orphan_items"] == 0
-    assert [entry["slug"] for entry in payload["stale"]] == ["chem-trial"]
+    assert [entry["slug"] for entry in payload["stale"]] == ["detached-app"]
 
 
 async def test_move_project_tool_keeps_the_slug(repositories: Path) -> None:
-    target = repositories / "career" / "hh-matcher"
+    target = repositories / "career" / "renamed-app"
     target.mkdir(parents=True)
     async with session_scope() as session:
         await create_project(
-            session, slug="hh-matcher", name="hh-matcher", root_path=str(repositories / "hh")
+            session, slug="renamed-app", name="renamed-app", root_path=str(repositories / "hh")
         )
         await session.commit()
 
-    payload = await _call("move_project", {"slug": "hh-matcher", "root": str(target)})
+    payload = await _call("move_project", {"slug": "renamed-app", "root": str(target)})
 
     assert payload["moved"] is True
-    assert payload["slug"] == "hh-matcher"
+    assert payload["slug"] == "renamed-app"
     assert payload["to"] == str(target)
 
 

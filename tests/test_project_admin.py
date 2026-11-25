@@ -79,15 +79,15 @@ async def test_move_project_keeps_items_and_notes(session: AsyncSession, tmp_pat
 
     project = await _project(
         session,
-        slug="candidate-tracker",
-        root_path=tmp_path / "candidate-tracker",
+        slug="legacy-app",
+        root_path=tmp_path / "legacy-app",
         items=2,
         notes=["decision one"],
     )
-    target = tmp_path / "career" / "candidate-tracker"
+    target = tmp_path / "career" / "legacy-app"
     target.mkdir(parents=True)
 
-    payload = await move_project(session, "candidate-tracker", str(target))
+    payload = await move_project(session, "legacy-app", str(target))
 
     await session.refresh(project)
     assert payload["moved"] is True
@@ -95,7 +95,7 @@ async def test_move_project_keeps_items_and_notes(session: AsyncSession, tmp_pat
     assert project.root_path == str(target)
     assert await _counts(session, project.id) == (2, 1)
 
-    again = await move_project(session, "candidate-tracker", str(target))
+    again = await move_project(session, "legacy-app", str(target))
     assert again["moved"] is False
 
 
@@ -165,12 +165,12 @@ async def test_sync_archives_duplicate_when_notes_are_copies(
 ) -> None:
     """The keeper is the project with the data; the empty twin is archived."""
 
-    shared = tmp_path / "mlaw-rag"
+    shared = tmp_path / "data-service"
     _seed_sources(shared)
     keeper = await _project(
-        session, slug="mlaw-rag", root_path=shared, items=2, notes=["same note"]
+        session, slug="data-service", root_path=shared, items=2, notes=["same note"]
     )
-    loser = await _project(session, slug="legal-mlaw-rag", root_path=shared, notes=["same note"])
+    loser = await _project(session, slug="legal-data-service", root_path=shared, notes=["same note"])
 
     report = await sync_projects(session, tmp_path, archive_duplicates=True)
 
@@ -178,44 +178,44 @@ async def test_sync_archives_duplicate_when_notes_are_copies(
     await session.refresh(keeper)
     assert loser.archived_at is not None
     assert keeper.archived_at is None
-    assert report.duplicates[0]["keeper"] == "mlaw-rag"
-    assert [entry["slug"] for entry in report.archived] == ["legal-mlaw-rag"]
+    assert report.duplicates[0]["keeper"] == "data-service"
+    assert [entry["slug"] for entry in report.archived] == ["legal-data-service"]
     assert await _counts(session, keeper.id) == (2, 1)
 
 
 async def test_sync_refuses_duplicate_archive_when_notes_are_unique(
     session: AsyncSession, tmp_path: Path
 ) -> None:
-    shared = tmp_path / "mlaw-rag"
+    shared = tmp_path / "data-service"
     _seed_sources(shared)
-    await _project(session, slug="mlaw-rag", root_path=shared, items=1)
-    loser = await _project(session, slug="legal-mlaw-rag", root_path=shared, notes=["only here"])
+    await _project(session, slug="data-service", root_path=shared, items=1)
+    loser = await _project(session, slug="legal-data-service", root_path=shared, notes=["only here"])
 
     report = await sync_projects(session, tmp_path, archive_duplicates=True)
 
     await session.refresh(loser)
     assert loser.archived_at is None
     skipped = {entry["slug"]: entry for entry in report.skipped}
-    assert skipped["legal-mlaw-rag"]["reason"] == "notes_not_covered"
+    assert skipped["legal-data-service"]["reason"] == "notes_not_covered"
 
 
 async def test_sync_archives_missing_root_when_flag_is_on(
     session: AsyncSession, tmp_path: Path
 ) -> None:
-    project = await _project(session, slug="telemetry", root_path=tmp_path / "telemetry")
+    project = await _project(session, slug="offline-app", root_path=tmp_path / "offline-app")
 
     report = await sync_projects(session, tmp_path, archive_missing=True)
 
     await session.refresh(project)
     assert project.archived_at is not None
-    assert [entry["slug"] for entry in report.archived] == ["telemetry"]
+    assert [entry["slug"] for entry in report.archived] == ["offline-app"]
 
 
 async def test_sync_refuses_archiving_missing_root_with_items(
     session: AsyncSession, tmp_path: Path
 ) -> None:
     project = await _project(
-        session, slug="candidate-tracker", root_path=tmp_path / "candidate-tracker", items=1
+        session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=1
     )
 
     report = await sync_projects(session, tmp_path, archive_missing=True)
@@ -223,22 +223,22 @@ async def test_sync_refuses_archiving_missing_root_with_items(
     await session.refresh(project)
     assert project.archived_at is None
     skipped = {entry["slug"]: entry for entry in report.skipped}
-    assert skipped["candidate-tracker"]["reason"] == "has_work_items"
+    assert skipped["legacy-app"]["reason"] == "has_work_items"
 
 
 async def test_sync_moves_project_root_and_keeps_data(
     session: AsyncSession, tmp_path: Path
 ) -> None:
     project = await _project(
-        session, slug="candidate-tracker", root_path=tmp_path / "candidate-tracker", items=2
+        session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=2
     )
-    moved_to = tmp_path / "career" / "candidate-tracker"
+    moved_to = tmp_path / "career" / "legacy-app"
     _seed_sources(moved_to)
 
     report = await sync_projects(
         session,
         tmp_path,
-        moves={"candidate-tracker": str(moved_to)},
+        moves={"legacy-app": str(moved_to)},
         archive_duplicates=True,
     )
 
@@ -249,30 +249,30 @@ async def test_sync_moves_project_root_and_keeps_data(
     # Discovery sees the moved root and reports the path-derived slug as a
     # duplicate of the keeper instead of creating a second project.
     assert report.registered == 0
-    assert await get_project_by_slug(session, "career-candidate-tracker") is None
+    assert await get_project_by_slug(session, "career-legacy-app") is None
     skipped = {entry["slug"]: entry for entry in report.skipped}
-    assert skipped["career-candidate-tracker"]["reason"] == "already_registered"
-    assert skipped["career-candidate-tracker"]["keeper"] == "candidate-tracker"
+    assert skipped["career-legacy-app"]["reason"] == "already_registered"
+    assert skipped["career-legacy-app"]["keeper"] == "legacy-app"
 
 
 async def test_sync_dry_run_writes_nothing(session: AsyncSession, tmp_path: Path) -> None:
-    project = await _project(session, slug="telemetry", root_path=tmp_path / "telemetry")
+    project = await _project(session, slug="offline-app", root_path=tmp_path / "offline-app")
 
     report = await sync_projects(session, tmp_path, archive_missing=True, dry_run=True)
 
     await session.refresh(project)
     assert project.archived_at is None
     assert project.config.get("detached") is not True
-    assert [entry["slug"] for entry in report.stale] == ["telemetry"]
+    assert [entry["slug"] for entry in report.stale] == ["offline-app"]
 
 
 async def test_audit_projects_reports_health(session: AsyncSession, tmp_path: Path) -> None:
-    shared = tmp_path / "mlaw-rag"
+    shared = tmp_path / "data-service"
     _seed_sources(shared)
-    await _project(session, slug="mlaw-rag", root_path=shared, items=2)
-    await _project(session, slug="legal-mlaw-rag", root_path=shared)
+    await _project(session, slug="data-service", root_path=shared, items=2)
+    await _project(session, slug="legal-data-service", root_path=shared)
     await _project(
-        session, slug="candidate-tracker", root_path=tmp_path / "candidate-tracker", items=3
+        session, slug="legacy-app", root_path=tmp_path / "legacy-app", items=3
     )
     _seed_sources(tmp_path / "fresh")
 
@@ -281,11 +281,11 @@ async def test_audit_projects_reports_health(session: AsyncSession, tmp_path: Pa
 
     assert payload["active"] == 3
     assert payload["orphan_items"] == 3
-    assert [entry["slug"] for entry in payload["stale"]] == ["candidate-tracker"]
-    assert payload["duplicates"][0]["keeper"] == "mlaw-rag"
+    assert [entry["slug"] for entry in payload["stale"]] == ["legacy-app"]
+    assert payload["duplicates"][0]["keeper"] == "data-service"
     assert [entry["path"] for entry in payload["uncovered"]] == [str(tmp_path / "fresh")]
     markdown = report.to_markdown()
-    assert "candidate-tracker" in markdown
+    assert "legacy-app" in markdown
     assert "|" in markdown
 
 
@@ -294,29 +294,29 @@ async def test_sync_dry_run_previews_duplicates_created_by_a_move(
 ) -> None:
     """A dry run predicts the archive without touching either project."""
 
-    moved_to = tmp_path / "legal" / "mlaw-rag"
+    moved_to = tmp_path / "legal" / "data-service"
     _seed_sources(moved_to)
     keeper = await _project(
-        session, slug="mlaw-rag", root_path=tmp_path / "mlaw-rag", items=2, notes=["same"]
+        session, slug="data-service", root_path=tmp_path / "data-service", items=2, notes=["same"]
     )
-    twin = await _project(session, slug="legal-mlaw-rag", root_path=moved_to, notes=["same"])
+    twin = await _project(session, slug="legal-data-service", root_path=moved_to, notes=["same"])
 
     report = await sync_projects(
         session,
         tmp_path,
-        moves={"mlaw-rag": str(moved_to)},
+        moves={"data-service": str(moved_to)},
         archive_duplicates=True,
         dry_run=True,
     )
 
     await session.refresh(keeper)
     await session.refresh(twin)
-    assert keeper.root_path == str(tmp_path / "mlaw-rag")
+    assert keeper.root_path == str(tmp_path / "data-service")
     assert twin.archived_at is None
-    assert report.duplicates[0]["keeper"] == "mlaw-rag"
+    assert report.duplicates[0]["keeper"] == "data-service"
     preview = {entry["slug"]: entry for entry in report.archived}
-    assert preview["legal-mlaw-rag"]["reason"] == "duplicate"
-    assert preview["legal-mlaw-rag"]["dry_run"] is True
+    assert preview["legal-data-service"]["reason"] == "duplicate"
+    assert preview["legal-data-service"]["dry_run"] is True
 
 
 async def test_sync_moves_accept_paths_relative_to_the_root(
@@ -324,11 +324,11 @@ async def test_sync_moves_accept_paths_relative_to_the_root(
 ) -> None:
     """A moves file stays machine-independent: targets resolve against --root."""
 
-    project = await _project(session, slug="vkrmgimo", root_path=tmp_path / "vkrMgimo")
-    target = tmp_path / "study" / "vkrMgimo"
+    project = await _project(session, slug="legacy-tool", root_path=tmp_path / "legacy-tool")
+    target = tmp_path / "legacy" / "legacy-tool"
     target.mkdir(parents=True)
 
-    report = await sync_projects(session, tmp_path, moves={"vkrmgimo": "study/vkrMgimo"})
+    report = await sync_projects(session, tmp_path, moves={"legacy-tool": "legacy/legacy-tool"})
 
     await session.refresh(project)
     assert project.root_path == str(target)
@@ -340,14 +340,14 @@ async def test_sync_skips_moves_for_archived_projects(
 ) -> None:
     """A re-run of a migration file must not resurrect an archived twin."""
 
-    target = tmp_path / "legal" / "mlaw-rag"
+    target = tmp_path / "legal" / "data-service"
     target.mkdir(parents=True)
-    project = await _project(session, slug="legal-mlaw-rag", root_path=target)
-    await archive_project(session, "legal-mlaw-rag")
+    project = await _project(session, slug="legal-data-service", root_path=target)
+    await archive_project(session, "legal-data-service")
 
-    report = await sync_projects(session, tmp_path, moves={"legal-mlaw-rag": "legal/mlaw-rag"})
+    report = await sync_projects(session, tmp_path, moves={"legal-data-service": "legal/data-service"})
 
     await session.refresh(project)
     assert project.archived_at is not None
     skipped = {entry["slug"]: entry for entry in report.skipped}
-    assert skipped["legal-mlaw-rag"]["reason"] == "archived"
+    assert skipped["legal-data-service"]["reason"] == "archived"

@@ -11,8 +11,8 @@
 
 ## Формат кейса
 
-`cases/tool_contract.jsonl` — один JSON на строку (как в донорах
-`school21intensive3` и `ukassa_mcp`):
+`cases/tool_contract.jsonl` — один JSON на строку (формат перенесён из
+проектов-доноров, где тот же контракт проверялся для MCP-серверов):
 
 ```json
 {

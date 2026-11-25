@@ -239,7 +239,7 @@ per-folder map.
 ## Export a digest for posts
 
 ```bash
-uv run taskhub export --project chem_trial --format markdown --out posts/chem.md
+uv run taskhub export --project <slug> --format markdown --out posts/<slug>.md
 uv run taskhub export --kind insight --since 2026-10-01 --format json --limit 200
 ```
 

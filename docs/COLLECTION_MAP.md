@@ -52,22 +52,16 @@ Notes and ledgers (`services/note_importer.py`):
 
 ## Portfolio layout
 
-The repositories root is organised into containers; a folder inside a
-container is a project on its own, even without a marker file:
+The repositories root is a flat set of projects plus a few containers:
+`career/`, `hackathons/`, `legal/`, `work_projects/`, `study/`, `landings/`,
+`infra/`, `conf/`, `archive/`, `workshops/`. A folder inside a container is a
+project on its own, even without a marker file — those names are listed in
+`CONTAINER_DIRS` in `services/projects.py`.
 
-| Container | Projects |
-|---|---|
-| `career/` | `candidate-tracker`, `career-platform`, `hh-matcher`, `mock_sobes`, `resume` |
-| `hackathons/` | `digitalMgimo`, `evehicle_pred`, `expeditionDS`, `fiass`, `finance_academy`, `gigaschool_hackathon_2026`, `insurance`, `kaggle`, `komanda-2`, `product_factory`, `ptcg-playground-agent`, `risk_radar`, `rsna_knee`, `ukassa_mcp` |
-| `legal/` | `court_report`, `debt_notifications`, `finDocs`, `mlaw-rag`, `mlaw-rag-public` |
-| `work_projects/` | `fdc-v5-atom-auto`, `lawcopilot`, `lawcopilot-api`, `law_rag_review`, `platform`, `syneps/*`, `telemetry` |
-| `study/` | `architectureKata`, `dataAnalyzis`, `diplomMagistrate`, `Product_Programming_Project_5.ID_1577983-1`, `school21intensive3`, `vkrMgimo` |
-| `workshops/` | `idea-to-spec-ai`, `idea-to-spec-framework`, `idea-to-spec-workshop` |
-| `landings/`, `infra/`, `conf/`, `archive/` | landing sites, shared infrastructure, conferences, archived code |
-| root | `ai-gateway`, `books`, `cogniforge`, `mcp-servers`, `neuro-slop-detector`, `personal-assistant`, `prolog-jit`, `puzzle`, `recommendations`, `taskhub`, `telegram-chat-analysis` |
-
-The exact list with item counts is the generated `docs/PROJECT_AUDIT.md` and
-`project://{slug}/backlog` — the table above only fixes where to look.
+The authoritative project list is the database, not a markdown file:
+`list_projects`, `project://{slug}/backlog` and the generated
+`docs/PROJECT_AUDIT.md`. Do not hardcode a project list here: it drifts, which
+is exactly what M16 fixed.
 
 ## When the database has no answer
 

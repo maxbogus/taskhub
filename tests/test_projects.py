@@ -119,13 +119,13 @@ async def test_register_reports_stale_projects_and_marks_them_detached(
     """A missing root is reported, not silently ignored."""
 
     await create_project(
-        session, slug="chem-trial", name="chem_trial", root_path=str(tmp_path / "chem_trial")
+        session, slug="detached-app", name="detached_app", root_path=str(tmp_path / "detached_app")
     )
 
     report = await register_projects(session, tmp_path, max_depth=1)
 
-    assert [entry["slug"] for entry in report.stale] == ["chem-trial"]
-    assert [entry["slug"] for entry in report.detached] == ["chem-trial"]
-    project = await get_project_by_slug(session, "chem-trial")
+    assert [entry["slug"] for entry in report.stale] == ["detached-app"]
+    assert [entry["slug"] for entry in report.detached] == ["detached-app"]
+    project = await get_project_by_slug(session, "detached-app")
     assert project is not None
     assert project.config.get("detached") is True
