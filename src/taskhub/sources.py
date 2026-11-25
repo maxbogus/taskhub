@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from functools import lru_cache
 from importlib import resources
 from pathlib import Path
@@ -53,6 +54,12 @@ class SourceDefaults(BaseModel):
     )
 
 
+class DiscoveryConfig(BaseModel):
+    """Folders that must never be registered as projects."""
+
+    exclude: tuple[str, ...] = ()
+
+
 class SourceSpec(BaseModel):
     """One declarative source: what to scan and which parser to use."""
 
@@ -76,6 +83,7 @@ class SourcesConfig(BaseModel):
     """The full parsed source configuration."""
 
     defaults: SourceDefaults = Field(default_factory=SourceDefaults)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     sources: list[SourceSpec] = Field(default_factory=list)
 
     def for_kind(self, kind: SourceKind, source_root: SourceRoot = "project") -> list[SourceSpec]:
@@ -216,6 +224,17 @@ def matching_sources(directory: Path, config: SourcesConfig | None = None) -> li
         for spec in cfg.sources
         if spec.root == "project" and spec.register_project and _spec_matches(directory, spec)
     ]
+
+
+def is_excluded(relative: Path | str, config: SourcesConfig | None = None) -> bool:
+    """True when a path relative to the repositories root must never be a project."""
+
+    cfg = config or load_sources()
+    text = Path(relative).as_posix()
+    return any(
+        fnmatchcase(text, pattern) or fnmatchcase(f"{text}/", pattern)
+        for pattern in cfg.discovery.exclude
+    )
 
 
 TASK_SECTION_KEYWORDS = (

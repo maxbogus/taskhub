@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from taskhub.models import Project
+from taskhub.models import Project, _utcnow
 
 
 async def create_project(
@@ -75,13 +75,17 @@ async def upsert_project(
     return existing, False
 
 
-async def get_project_by_slug(session: AsyncSession, slug: str) -> Project | None:
-    stmt = select(Project).where(Project.slug == slug, Project.archived_at.is_(None))
+async def get_project_by_slug(
+    session: AsyncSession, slug: str, *, include_archived: bool = False
+) -> Project | None:
+    stmt = select(Project).where(Project.slug == slug)
+    if not include_archived:
+        stmt = stmt.where(Project.archived_at.is_(None))
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def list_projects(session: AsyncSession) -> list[Project]:
-    """Return the active real projects.
+async def list_projects(session: AsyncSession, *, include_archived: bool = False) -> list[Project]:
+    """Return real projects: active only unless ``include_archived`` is set.
 
     The portfolio pseudo-project is left out: it is reachable by slug,
     but it must not appear among the real projects (the dashboard would
@@ -90,12 +94,68 @@ async def list_projects(session: AsyncSession) -> list[Project]:
 
     from taskhub.services.portfolio import PORTFOLIO_SLUG
 
-    stmt = (
-        select(Project)
-        .where(Project.archived_at.is_(None), Project.slug != PORTFOLIO_SLUG)
-        .order_by(Project.slug.asc())
-    )
+    stmt = select(Project).where(Project.slug != PORTFOLIO_SLUG)
+    if not include_archived:
+        stmt = stmt.where(Project.archived_at.is_(None))
+    stmt = stmt.order_by(Project.slug.asc())
     return list((await session.execute(stmt)).scalars().all())
+
+
+async def find_by_root_path(session: AsyncSession, root_path: str) -> Project | None:
+    """Return the active project registered exactly at ``root_path``."""
+
+    target = Path(root_path).expanduser().resolve()
+    for project in await list_projects(session):
+        if Path(project.root_path).expanduser().resolve() == target:
+            return project
+    return None
+
+
+async def set_root_path(session: AsyncSession, project: Project, root_path: str) -> Project:
+    """Re-point a project at another checkout; the slug never changes."""
+
+    project.root_path = str(Path(root_path).expanduser().resolve())
+    await session.flush()
+    return project
+
+
+async def archive_project(
+    session: AsyncSession, project: Project, *, restore: bool = False
+) -> Project:
+    """Soft-archive (or restore) a project — the row is never deleted."""
+
+    project.archived_at = None if restore else _utcnow()
+    await session.flush()
+    return project
+
+
+async def project_counts(session: AsyncSession, project_id: str) -> tuple[int, int]:
+    """Return ``(work_items, notes)`` attached to a project."""
+
+    from taskhub.models import Note, WorkItem
+
+    items = (
+        await session.execute(
+            select(func.count()).select_from(WorkItem).where(WorkItem.project_id == project_id)
+        )
+    ).scalar_one()
+    notes = (
+        await session.execute(
+            select(func.count()).select_from(Note).where(Note.project_id == project_id)
+        )
+    ).scalar_one()
+    return int(items), int(notes)
+
+
+async def note_signatures(session: AsyncSession, project_id: str) -> set[tuple[str, str]]:
+    """Return ``(kind, content)`` pairs of a project's notes for copy detection."""
+
+    from taskhub.models import Note
+
+    rows = await session.execute(
+        select(Note.kind, Note.content).where(Note.project_id == project_id)
+    )
+    return {(str(kind), str(content)) for kind, content in rows.all()}
 
 
 async def find_project_by_path(session: AsyncSession, path: str) -> Project | None:

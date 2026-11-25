@@ -10,6 +10,7 @@ from taskhub.sources import (
     SourcesConfig,
     SourceSpec,
     discover_sources,
+    is_excluded,
     load_sources,
     matching_sources,
 )
@@ -129,3 +130,54 @@ def test_matching_sources_respects_register_and_patterns(tmp_path: Path) -> None
 
     _write(project / ".clinerules" / "14-ledger.md", "x\n")
     assert matching_sources(project, config=config) == ["ai", "rules"]
+
+
+def test_is_excluded_matches_globs(tmp_path: Path) -> None:
+    path = tmp_path / "sources.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "discovery": {"exclude": ["snapshots/*", "workshops/idea"]},
+                "sources": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = load_sources(str(path))
+
+    assert is_excluded("snapshots/framework", config)
+    assert is_excluded("workshops/idea", config)
+    assert not is_excluded("workshops/idea-to-spec", config)
+
+
+def test_discover_projects_skips_excluded_directories(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Snapshots and archive copies never become projects."""
+
+    from taskhub.services.projects import discover_projects
+
+    path = tmp_path / "sources.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "discovery": {"exclude": ["snapshots/*", "workshops/idea-to-spec"]},
+                "sources": [
+                    {"name": "tasks", "kind": "task", "paths": [["docs", "backlog"]]}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TASKHUB_SOURCES_FILE", str(path))
+    load_sources.cache_clear()
+    try:
+        repositories = tmp_path / "Repositories"
+        for relative in ("snapshots/framework", "workshops/idea-to-spec/framework", "real"):
+            _write(repositories / relative / "docs" / "backlog" / "T-1.md", "# T-1\n")
+
+        slugs = [candidate.slug for candidate in discover_projects(repositories, max_depth=2)]
+    finally:
+        load_sources.cache_clear()
+
+    assert slugs == ["real"]

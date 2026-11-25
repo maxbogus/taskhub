@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from taskhub.repo.projects import get_project_by_slug, list_projects
+from taskhub.repo.projects import create_project, get_project_by_slug, list_projects
 from taskhub.services.projects import discover_projects, register_projects, slugify
 
 
@@ -40,9 +40,7 @@ def test_discover_projects(tmp_path: Path) -> None:
     assert all("src" not in slug for slug in slugs)
 
 
-async def test_register_projects_is_idempotent(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_register_projects_is_idempotent(session: AsyncSession, tmp_path: Path) -> None:
     _seed(tmp_path)
 
     first = await register_projects(session, tmp_path, max_depth=2)
@@ -67,6 +65,67 @@ async def test_register_projects_dry_run_writes_nothing(
 
     report = await register_projects(session, tmp_path, max_depth=2, dry_run=True)
 
+    # `registered` counts what the run registers (or would register in a dry run);
+    # the database itself must stay untouched.
     assert len(report.projects) == 2
-    assert report.registered == 0
+    assert report.registered == 2
     assert await list_projects(session) == []
+
+
+async def test_register_reuses_slug_when_root_is_already_registered(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """A known path never produces a second slug (the `landing` duplicate case)."""
+
+    landing = tmp_path / "landings" / "landing"
+    _write(landing / "docs" / "backlog" / "T-1.md", "# T-1\n")
+    await create_project(session, slug="landing", name="landing", root_path=str(landing))
+
+    report = await register_projects(session, tmp_path, max_depth=2)
+
+    slugs = [project.slug for project in await list_projects(session)]
+    assert slugs == ["landing"]
+    assert report.registered == 0
+    assert report.existing == 1
+    skipped = {entry["slug"]: entry for entry in report.skipped}
+    assert skipped["landings-landing"]["reason"] == "already_registered"
+    assert skipped["landings-landing"]["keeper"] == "landing"
+
+
+async def test_register_follows_slug_collision_to_the_new_root(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """`landings/landing` and `landings-landing` share one slug — the slug wins."""
+
+    moved_to = tmp_path / "landings" / "landing"
+    _write(moved_to / "docs" / "backlog" / "T-1.md", "# T-1\n")
+    project = await create_project(
+        session, slug="landings-landing", name="landing", root_path=str(tmp_path / "landing")
+    )
+
+    report = await register_projects(session, tmp_path, max_depth=2)
+
+    await session.refresh(project)
+    assert project.root_path == str(moved_to)
+    assert report.registered == 0
+    assert report.moved[0]["slug"] == "landings-landing"
+    assert report.moved[0]["reason"] == "slug"
+    assert report.moved[0]["to"] == str(moved_to)
+
+
+async def test_register_reports_stale_projects_and_marks_them_detached(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """A missing root is reported, not silently ignored."""
+
+    await create_project(
+        session, slug="chem-trial", name="chem_trial", root_path=str(tmp_path / "chem_trial")
+    )
+
+    report = await register_projects(session, tmp_path, max_depth=1)
+
+    assert [entry["slug"] for entry in report.stale] == ["chem-trial"]
+    assert [entry["slug"] for entry in report.detached] == ["chem-trial"]
+    project = await get_project_by_slug(session, "chem-trial")
+    assert project is not None
+    assert project.config.get("detached") is True

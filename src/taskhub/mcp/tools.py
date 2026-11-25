@@ -109,7 +109,11 @@ from taskhub.services.price_store import (
 from taskhub.services.price_store import (
     sync_prices as sync_prices_service,
 )
+from taskhub.services.projects import archive_project as archive_project_service
+from taskhub.services.projects import audit_projects as audit_projects_service
+from taskhub.services.projects import move_project as move_project_service
 from taskhub.services.projects import register_projects as register_projects_service
+from taskhub.services.projects import sync_projects as sync_projects_service
 from taskhub.services.scope import resolve_scope
 from taskhub.services.templates import (
     DEFAULT_TEMPLATE_SOURCES,
@@ -925,6 +929,78 @@ async def register_projects(
         payload["root"] = str(base)
         payload["dry_run"] = dry_run
         return payload
+
+
+async def sync_projects(
+    root: str | None = None,
+    max_depth: int = 3,
+    dry_run: bool = False,
+    archive_missing: bool = False,
+    archive_duplicates: bool = False,
+    moves: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Align the project registry with the folders on disk.
+
+    Identity is the resolved root path, so a known path never creates a second
+    slug. ``moves`` re-points a slug at a new checkout and keeps its work items;
+    archiving is soft and refuses to hide data.
+    """
+
+    async with session_scope() as session:
+        base = Path(root).expanduser() if root else get_settings().repositories_root
+        try:
+            report = await sync_projects_service(
+                session,
+                base,
+                max_depth=max_depth,
+                dry_run=dry_run,
+                moves=moves,
+                archive_missing=archive_missing,
+                archive_duplicates=archive_duplicates,
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        payload = report.to_dict()
+        payload["root"] = str(base)
+        payload["dry_run"] = dry_run
+        return payload
+
+
+async def project_audit(
+    root: str | None = None,
+    max_depth: int = 3,
+) -> dict[str, Any]:
+    """Report stale roots, duplicate registrations and uncovered directories."""
+
+    async with session_scope() as session:
+        base = Path(root).expanduser() if root else get_settings().repositories_root
+        try:
+            report = await audit_projects_service(session, base, max_depth=max_depth)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        return report.to_dict()
+
+
+async def move_project(
+    slug: str,
+    root: str,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Re-point a project at a new checkout; the slug and the work items stay."""
+
+    async with session_scope() as session:
+        return await move_project_service(session, slug, root, dry_run=dry_run)
+
+
+async def archive_project(
+    slug: str,
+    force: bool = False,
+    restore: bool = False,
+) -> dict[str, Any]:
+    """Soft-archive (or restore) a project; data-bearing projects need force."""
+
+    async with session_scope() as session:
+        return await archive_project_service(session, slug, force=force, restore=restore)
 
 
 async def import_all_backlogs(

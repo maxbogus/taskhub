@@ -29,6 +29,15 @@ defaults:
     - LEAN-TEMPLATE.md
     - DEPLOYMENT-CHECKLIST.md
 
+# Folders that must never become projects: published snapshots and archive
+# copies carry the handoff of their source repository, so registering them
+# would duplicate notes and shadow the real project in scope resolution.
+discovery:
+  exclude:
+    - "conf/archive/*"
+    - "workshops/idea-to-spec-ai/framework"
+    - "workshops/idea-to-spec-workshop/framework"
+
 sources:
   # ---------------------------------------------------------------- tasks
   - name: ai-tasks
@@ -92,12 +101,6 @@ sources:
       - ["INDEX.md"]
       - ["STATUS.md"]
       - ["SUMMARY.md"]
-      - ["ML_TRAINING_ROADMAP.md"]
-      - ["portfolio_data.json"]
-      - ["about_data.json"]
-      - ["skills_data.json"]
-      - ["education_data.json"]
-      - ["experience_data.json"]
     patterns: ["**/*.md", "**/*.json"]
     parser: markdown_note
     register_project: false

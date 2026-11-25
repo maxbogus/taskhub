@@ -20,7 +20,13 @@ class CollectReport:
 
     projects: list[dict[str, Any]] = field(default_factory=list)
     totals: dict[str, int] = field(
-        default_factory=lambda: {"created": 0, "updated": 0, "skipped": 0, "errors": 0}
+        default_factory=lambda: {
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": 0,
+            "detached": 0,
+        }
     )
     notes: dict[str, Any] | None = None
 
@@ -47,6 +53,18 @@ async def import_all(
         await create_backup(backup_dir=backup_dir)
 
     for project in projects:
+        if not Path(project.root_path).expanduser().is_dir():
+            # A detached project keeps its history; importing into a missing
+            # root would silently do nothing, so it is reported instead.
+            report.projects.append(
+                {
+                    "slug": project.slug,
+                    "detached": True,
+                    "root_path": project.root_path,
+                }
+            )
+            report.totals["detached"] += 1
+            continue
         try:
             result = await import_backlog(
                 session,

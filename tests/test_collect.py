@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from taskhub.models import WorkItem
-from taskhub.repo.projects import list_projects
+from taskhub.repo.projects import create_project, list_projects
 from taskhub.services.collect import import_all
 from taskhub.services.projects import register_projects
 
@@ -47,9 +47,7 @@ def _seed(root: Path) -> None:
     _write(root / "beta" / "docs" / "backlog" / "f1.md", FRONTMATTER_TASK)
 
 
-async def test_import_all_dry_run_then_real(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_import_all_dry_run_then_real(session: AsyncSession, tmp_path: Path) -> None:
     _seed(tmp_path)
     await register_projects(session, tmp_path, max_depth=1)
     projects = await list_projects(session)
@@ -67,3 +65,20 @@ async def test_import_all_dry_run_then_real(
     again = await import_all(session, projects, skip_backup=True)
     assert again.totals["created"] == 0
     assert len(list((await session.execute(select(WorkItem))).scalars().all())) == 2
+
+
+async def test_import_all_reports_detached_projects_instead_of_silence(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """A project whose root is gone is reported, not skipped without a trace."""
+
+    gone = await create_project(
+        session, slug="chem-trial", name="chem_trial", root_path=str(tmp_path / "chem_trial")
+    )
+
+    report = await import_all(session, [gone], skip_backup=True, dry_run=True)
+
+    assert report.totals["detached"] == 1
+    assert report.totals["errors"] == 0
+    assert report.projects[0]["slug"] == "chem-trial"
+    assert report.projects[0]["detached"] is True

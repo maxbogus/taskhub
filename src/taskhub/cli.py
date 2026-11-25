@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
 from sqlalchemy import select
 
 from taskhub.config import get_settings
@@ -24,7 +25,11 @@ from taskhub.services.economics import load_price_specs
 from taskhub.services.export import export_notes
 from taskhub.services.note_importer import import_all_notes
 from taskhub.services.price_store import sync_prices as sync_prices_service
+from taskhub.services.projects import archive_project as archive_project_service
+from taskhub.services.projects import audit_projects as audit_projects_service
+from taskhub.services.projects import move_project as move_project_service
 from taskhub.services.projects import register_projects as register_projects_service
+from taskhub.services.projects import sync_projects as sync_projects_service
 from taskhub.services.templates import (
     DEFAULT_TEMPLATE_SOURCES,
     import_templates,
@@ -67,6 +72,98 @@ async def _import_templates() -> None:
 async def _backup(keep: int | None) -> None:
     target = await create_backup(keep=keep)
     print(json.dumps({"status": "ok", "path": str(target)}, ensure_ascii=False))
+
+
+def _load_moves(path: str) -> dict[str, str]:
+    """Read a ``moves:`` mapping (slug → new root) from a YAML file."""
+
+    data = yaml.safe_load(Path(path).expanduser().read_text(encoding="utf-8")) or {}
+    moves = data.get("moves", data) if isinstance(data, dict) else None
+    if not isinstance(moves, dict):
+        raise SystemExit(f"moves file must contain a mapping: {path}")
+    return {str(slug): str(target) for slug, target in moves.items()}
+
+
+async def _sync_projects(
+    root: str | None,
+    max_depth: int,
+    dry_run: bool,
+    archive_missing: bool,
+    archive_duplicates: bool,
+    moves_path: str | None,
+    output_format: str,
+) -> None:
+    moves = _load_moves(moves_path) if moves_path else None
+    async with session_scope() as session:
+        base = Path(root).expanduser() if root else get_settings().repositories_root
+        report = await sync_projects_service(
+            session,
+            base,
+            max_depth=max_depth,
+            dry_run=dry_run,
+            moves=moves,
+            archive_missing=archive_missing,
+            archive_duplicates=archive_duplicates,
+        )
+        payload = report.to_dict()
+        payload["root"] = str(base)
+        payload["dry_run"] = dry_run
+        if output_format == "markdown":
+            print(_sync_markdown(payload))
+        else:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _sync_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# Project sync — `{payload['root']}`",
+        "",
+        f"- dry_run: {payload['dry_run']}",
+        f"- registered: {payload['registered']}, existing: {payload['existing']}",
+        f"- moved: {len(payload['moved'])}, archived: {len(payload['archived'])}, "
+        f"skipped: {len(payload['skipped'])}",
+        f"- stale: {len(payload['stale'])}, duplicates: {len(payload['duplicates'])}",
+    ]
+    for section in ("moved", "archived", "skipped", "detached"):
+        entries = payload.get(section) or []
+        if not entries:
+            continue
+        lines += ["", f"## {section}", "", "| slug | details |", "|---|---|"]
+        for entry in entries:
+            details = ", ".join(f"{key}={value}" for key, value in entry.items() if key != "slug")
+            lines.append(f"| {entry.get('slug')} | {details} |")
+    return "\n".join(lines) + "\n"
+
+
+async def _audit_projects(
+    root: str | None, max_depth: int, output_format: str, out: str | None
+) -> None:
+    async with session_scope() as session:
+        base = Path(root).expanduser() if root else get_settings().repositories_root
+        report = await audit_projects_service(session, base, max_depth=max_depth)
+        if output_format == "markdown":
+            text = report.to_markdown()
+        else:
+            text = json.dumps(report.to_dict(), ensure_ascii=False, indent=2)
+    if out:
+        target = Path(out).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        print(json.dumps({"status": "ok", "path": str(target)}, ensure_ascii=False))
+        return
+    print(text)
+
+
+async def _move_project(slug: str, root: str, dry_run: bool) -> None:
+    async with session_scope() as session:
+        payload = await move_project_service(session, slug, root, dry_run=dry_run)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+async def _archive_project(slug: str, force: bool, restore: bool) -> None:
+    async with session_scope() as session:
+        payload = await archive_project_service(session, slug, force=force, restore=restore)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 async def _register_projects(root: str | None, max_depth: int, dry_run: bool) -> None:
@@ -273,6 +370,45 @@ def main() -> None:
     register_parser.add_argument("--root", default=None)
     register_parser.add_argument("--max-depth", type=int, default=2)
     register_parser.add_argument("--dry-run", action="store_true")
+    sync_parser = subparsers.add_parser(
+        "sync-projects", help="align the registry with the folders on disk"
+    )
+    sync_parser.add_argument("--root", default=None)
+    sync_parser.add_argument("--max-depth", type=int, default=3)
+    sync_parser.add_argument("--dry-run", action="store_true")
+    sync_parser.add_argument(
+        "--archive-missing", action="store_true", help="archive projects whose root is gone"
+    )
+    sync_parser.add_argument(
+        "--archive-duplicates",
+        action="store_true",
+        help="archive projects that duplicate a registered root",
+    )
+    sync_parser.add_argument("--moves", default=None, help="YAML file with slug → new root mapping")
+    sync_parser.add_argument(
+        "--format", dest="output_format", choices=("json", "markdown"), default="json"
+    )
+    audit_parser = subparsers.add_parser(
+        "audit-projects", help="report stale, duplicate and uncovered projects"
+    )
+    audit_parser.add_argument("--root", default=None)
+    audit_parser.add_argument("--max-depth", type=int, default=3)
+    audit_parser.add_argument(
+        "--format", dest="output_format", choices=("json", "markdown"), default="json"
+    )
+    audit_parser.add_argument("--out", default=None)
+    move_parser = subparsers.add_parser(
+        "move-project", help="re-point a project at a new checkout (slug is kept)"
+    )
+    move_parser.add_argument("--slug", required=True)
+    move_parser.add_argument("--root", required=True)
+    move_parser.add_argument("--dry-run", action="store_true")
+    archive_parser = subparsers.add_parser(
+        "archive-project", help="soft-archive or restore a project"
+    )
+    archive_parser.add_argument("--slug", required=True)
+    archive_parser.add_argument("--force", action="store_true")
+    archive_parser.add_argument("--restore", action="store_true")
     import_all_parser = subparsers.add_parser(
         "import-all", help="import backlogs for all registered projects"
     )
@@ -335,6 +471,24 @@ def main() -> None:
         asyncio.run(_backup(args.keep))
     elif args.command == "register-projects":
         asyncio.run(_register_projects(args.root, args.max_depth, args.dry_run))
+    elif args.command == "sync-projects":
+        asyncio.run(
+            _sync_projects(
+                args.root,
+                args.max_depth,
+                args.dry_run,
+                args.archive_missing,
+                args.archive_duplicates,
+                args.moves,
+                args.output_format,
+            )
+        )
+    elif args.command == "audit-projects":
+        asyncio.run(_audit_projects(args.root, args.max_depth, args.output_format, args.out))
+    elif args.command == "move-project":
+        asyncio.run(_move_project(args.slug, args.root, args.dry_run))
+    elif args.command == "archive-project":
+        asyncio.run(_archive_project(args.slug, args.force, args.restore))
     elif args.command == "import-all":
         asyncio.run(_import_all(args.dry_run, args.no_backup, args.project, args.notes))
     elif args.command == "import-notes":
