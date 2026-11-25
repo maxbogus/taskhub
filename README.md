@@ -545,7 +545,8 @@ tool `backup_db(keep=...)` exposes the same behaviour.
 ## Testing
 
 ```bash
-make test          # pytest
+make test          # pytest (includes the slow, live-model cases)
+make test-fast     # pytest -m "not slow" — what CI runs
 make lint          # ruff check
 make type-check    # mypy
 make check         # lint + type-check + test
@@ -553,9 +554,13 @@ make secrets       # gitleaks: scan git history
 make secrets-scan  # gitleaks: scan the working tree
 ```
 
-Run `make help` (or just `make`) for all targets — install, init-db, test, lint,
-format, type-check, check, secrets, register-projects, import, import-notes,
-export, backup, mcp, web, docker-up/down.
+Cases marked `slow` drive a real Ollama model and are skipped on CI
+(`uv run pytest -q -m "not slow"`); they need `ollama` running locally.
+
+Run `make help` (or just `make`) for all targets — install, init-db, test,
+test-fast, lint, format, type-check, check, secrets, register-projects,
+sync-dry, sync, audit, import, import-notes, export, backup, mcp, web,
+docker-up/down.
 
 ## Design notes
 

@@ -1,7 +1,7 @@
 # TaskHub — developer entry points. Run `make` or `make help`.
 
 .DEFAULT_GOAL := help
-.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects sync-dry sync audit import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock eval-agent eval-seed
+.PHONY: help install init-db test test-fast test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects sync-dry sync audit import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock eval-agent eval-seed
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## / — /' | sed 's/^/  make /'
@@ -14,6 +14,9 @@ init-db: ## Create tables under $TASKHUB_HOME (default ~/.taskhub)
 
 test: ## Run the test suite
 	uv run pytest
+
+test-fast: ## Run the test suite without the live-model (slow) cases
+	uv run pytest -m "not slow"
 
 test-cov: ## Run tests with coverage
 	uv run pytest --cov=taskhub --cov-report=term-missing
