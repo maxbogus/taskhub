@@ -129,3 +129,21 @@ async def test_register_reports_stale_projects_and_marks_them_detached(
     project = await get_project_by_slug(session, "detached-app")
     assert project is not None
     assert project.config.get("detached") is True
+
+async def test_discover_projects_survives_an_unreadable_directory(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """One unreadable folder must not abort a sync of the whole tree."""
+
+    import os
+
+    _seed(tmp_path)
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    os.chmod(blocked, 0o000)
+    try:
+        candidates = discover_projects(tmp_path, max_depth=2)
+    finally:
+        os.chmod(blocked, 0o700)
+
+    assert {candidate.slug for candidate in candidates} == {"ai-gateway", "clients-acme"}

@@ -120,9 +120,16 @@ def slugify(value: str) -> str:
 
 
 def _has_sources(directory: Path) -> list[str]:
-    """Registrable sources present in a directory, resolved from sources.yaml."""
+    """Registrable sources present in a directory, resolved from sources.yaml.
 
-    return sources.matching_sources(directory)
+    An unreadable directory (permissions, a race with a mount) is treated as
+    having no sources: one bad folder must not abort a whole sync.
+    """
+
+    try:
+        return sources.matching_sources(directory)
+    except OSError:
+        return []
 
 
 def _readme_description(directory: Path) -> str | None:
