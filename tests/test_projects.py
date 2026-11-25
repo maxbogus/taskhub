@@ -130,6 +130,7 @@ async def test_register_reports_stale_projects_and_marks_them_detached(
     assert project is not None
     assert project.config.get("detached") is True
 
+
 async def test_discover_projects_survives_an_unreadable_directory(
     session: AsyncSession, tmp_path: Path
 ) -> None:
