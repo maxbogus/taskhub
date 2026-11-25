@@ -109,7 +109,9 @@ Zero-config: the app runs with these defaults. Override any setting with the
 | Scenario | Command | Endpoint |
 |---|---|---|
 | First run | `uv run taskhub init-db` | — |
-| Discover + import tasks | `uv run taskhub register-projects --root ~/Repositories` then `uv run taskhub import-all --dry-run` then `uv run taskhub import-all` | — |
+| Discover + import tasks | `uv run taskhub sync-projects --root ~/Repositories --dry-run` then `uv run taskhub import-all --dry-run` then `uv run taskhub import-all` | — |
+| Registry health | `uv run taskhub audit-projects --root ~/Repositories` | — |
+| Move / archive a project | `uv run taskhub move-project --slug <slug> --root <path>`, `uv run taskhub archive-project --slug <slug>` | — |
 | Tasks + ledgers/notes | `uv run taskhub import-all --notes` | — |
 | Ledgers/notes only | `uv run taskhub import-notes` | — |
 | MCP server (stdio) | `uv run taskhub-mcp` | stdio |
@@ -126,8 +128,9 @@ Zero-config: the app runs with these defaults. Override any setting with the
 ## Collect tasks from all projects
 
 ```bash
-# 1. register every directory under ~/Repositories that has task sources
-uv run taskhub register-projects --root ~/Repositories --max-depth 2
+# 1. align the registry with the folders on disk (dry run first)
+uv run taskhub sync-projects --root ~/Repositories --max-depth 3 --dry-run
+uv run taskhub sync-projects --root ~/Repositories --max-depth 3
 
 # 2. preview the import (no writes)
 uv run taskhub import-all --dry-run
@@ -139,8 +142,9 @@ uv run taskhub import-all
 uv run taskhub import-all --project ai-gateway --project books
 ```
 
-> Migration is exposed through the TaskHub MCP server (`register_projects`,
-> `import_all_backlogs`, `import_notes`); the `taskhub-migrate` skill drives it.
+> Migration is exposed through the TaskHub MCP server (`sync_projects`,
+> `project_audit`, `move_project`, `archive_project`, `import_all_backlogs`,
+> `import_notes`); the `taskhub-migrate` skill drives it.
 
 Sources are declared in `src/taskhub/sources.yaml` (directories, explicit files,
 glob patterns and a parser per source), not in Python code. The defaults cover
@@ -149,6 +153,25 @@ glob patterns and a parser per source), not in Python code. The defaults cover
 Roadmap/TODO/Backlog section. Items are upserted by `(project, external_ref)`, so
 re-runs update instead of duplicating. MCP exposes the same flow via
 `register_projects` and `import_all_backlogs`.
+
+## Project registry (M16)
+
+`Project.slug` is immutable; `Project.root_path` is the location. Discovery
+identifies a project by its resolved root path, so a known checkout never
+creates a second slug, and a folder rename is an explicit move:
+
+| Situation | Command | Effect |
+|---|---|---|
+| New project folder | `sync-projects` | registers it; a dry run lists every decision |
+| Folder moved / renamed | `move-project --slug <slug> --root <path>` | `root_path` changes, work items stay on the same `Project.id` |
+| Two projects on one root | `sync-projects --archive-duplicates` | keeps the project with the data, soft-archives the empty twin (only when its notes are copies) |
+| Folder deleted | `sync-projects --archive-missing` | soft-archives an empty project; a project with data is refused and reported |
+| Root is gone, data matters | — | stays active, marked `config.detached`, skipped and reported by the importer |
+
+Nothing is hard-deleted: `archive-project --restore` brings a project back, and
+`audit-projects` reports stale roots, duplicate registrations and uncovered
+directories. The 2026-11 portfolio reorganisation and the policy behind it are
+documented in `docs/PROJECT_SYNC.md`.
 
 ## Source configuration
 
@@ -164,6 +187,11 @@ defaults:
   patterns: ["**/*.md"]
   exclude: [templates, node_modules, .git, .venv, __pycache__]
   skip_files: [INDEX.md, README.md]
+
+discovery:                  # folders that must never become projects
+  exclude:
+    - "conf/archive/*"
+    - "workshops/idea-to-spec-ai/framework"
 
 sources:
   - name: ai-tasks
@@ -189,6 +217,9 @@ sources:
 
 `root: memory` sources live under `TASKHUB_MEMORY_ROOT`; `register_project:
 false` lets a source feed import without making a folder a project.
+`discovery.exclude` takes globs relative to the repositories root and prunes a
+folder together with its subtree — a published snapshot or an archive copy never
+becomes a project.
 
 ## Collect ledgers and notes
 
@@ -535,5 +566,8 @@ export, backup, mcp, web, docker-up/down.
 
 ## Milestones
 
-All planned milestones M1–M15 are complete. Suggested follow-ups: note
-filtering in the dashboard and partitioned metrics for PostgreSQL.
+All planned milestones M1–M16 are complete. M16 added the project registry
+sync (`sync-projects`, `audit-projects`, `move-project`, `archive-project`,
+`discovery.exclude`) and the 2026-11 registry migration
+(`docs/PROJECT_SYNC.md`). Suggested follow-ups: note filtering in the dashboard
+and partitioned metrics for PostgreSQL.

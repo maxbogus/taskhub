@@ -51,7 +51,12 @@ alembic/          async migrations
 uv sync --extra dev
 uv run taskhub init-db
 uv run taskhub mcp-config                                # write .mcp.json (machine-local)
-uv run taskhub register-projects --root ~/Repositories   # discover projects
+uv run taskhub register-projects --root ~/Repositories   # discover projects (audit only)
+uv run taskhub sync-projects --root ~/Repositories --dry-run        # what would change
+uv run taskhub sync-projects --root ~/Repositories [--archive-duplicates] [--moves file.yaml]
+uv run taskhub audit-projects --root ~/Repositories     # stale, duplicates, uncovered
+uv run taskhub move-project --slug <slug> --root <path>  # rename/move, items stay
+uv run taskhub archive-project --slug <slug> [--restore] [--force]
 uv run taskhub import-all --dry-run                      # preview collection
 uv run taskhub import-all                                # bulk backlog import
 uv run taskhub import-all --notes                        # tasks + ledgers/notes
@@ -78,6 +83,14 @@ make eval        # MCP tool contract against the real MCP server (needs npm inst
 ## Key conventions
 
 - Soft archive only (`status=archived` + `archived_at`), never physical delete.
+- `Project.slug` is immutable; `Project.root_path` is the location. Discovery
+  identifies a project by the resolved root path, so a known checkout never
+  creates a second slug (policy A, `docs/PROJECT_SYNC.md`).
+- A move re-points `root_path` and never touches `work_item` rows; a duplicate
+  registration is archived only when its notes are copies of the keeper.
+- A project with a missing root is `config.detached`: reported by
+  `sync-projects`/`import-all`, never silently imported.
+- `discovery.exclude` in `sources.yaml` prunes snapshots and archive copies.
 - `Enum(..., native_enum=False)` for SQLite compatibility.
 - `JSON().with_variant(JSONB(), "postgresql")` for JSON columns.
 - `WorkItem.due_at` drives EVM planned value and lead time.

@@ -10,6 +10,9 @@ build/
 # Eval artefacts (promptfoo reports)
 docs/evaluation/
 
+# Generated registry audit — contains machine-specific absolute paths
+docs/PROJECT_AUDIT.md
+
 # Node (promptfoo eval harness)
 node_modules/
 package-lock.json

@@ -1,7 +1,7 @@
 # TaskHub — developer entry points. Run `make` or `make help`.
 
 .DEFAULT_GOAL := help
-.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock eval-agent eval-seed
+.PHONY: help install init-db test test-cov lint lint-fix format format-check type-check check secrets secrets-scan secrets-staged register-projects sync-dry sync audit import import-notes export backup mcp mcp-config web docker-up docker-down prices sync-prices economics eval eval-mock eval-agent eval-seed
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## / — /' | sed 's/^/  make /'
@@ -46,6 +46,15 @@ secrets-staged: ## Scan staged files for secrets (gitleaks)
 
 register-projects: ## Discover projects under ~/Repositories
 	uv run taskhub register-projects --root ~/Repositories
+
+sync-dry: ## Preview the registry sync (moves, archives, registrations)
+	uv run taskhub sync-projects --root ~/Repositories --dry-run
+
+sync: ## Align the registry with the folders on disk
+	uv run taskhub sync-projects --root ~/Repositories
+
+audit: ## Registry health: stale roots, duplicates, uncovered directories
+	uv run taskhub audit-projects --root ~/Repositories --format markdown
 
 import: ## Import tasks for all projects
 	uv run taskhub import-all

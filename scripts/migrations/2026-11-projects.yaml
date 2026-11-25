@@ -1,0 +1,55 @@
+# One-off migration: align the TaskHub registry with the 2026-11 portfolio layout.
+#
+# Policy A (see docs/PROJECT_SYNC.md): the slug is immutable, root_path moves.
+# Targets are relative to --root, so the file carries no personal paths.
+# Apply with:
+#   uv run taskhub sync-projects --root ~/Repositories \
+#     --moves scripts/migrations/2026-11-projects.yaml \
+#     --archive-duplicates --dry-run      # preview first
+#
+# `moves` is the machine-readable part; `archive` and `detached` document the
+# rest of the decision so the file is self-contained for a future reader.
+moves:
+  architecturekata: study/architectureKata
+  candidate-tracker: career/candidate-tracker
+  career-platform: career/career-platform
+  court-report: legal/court_report
+  dataanalyzis: study/dataAnalyzis
+  debt-notifications: legal/debt_notifications
+  digitalmgimo: hackathons/digitalMgimo
+  evehicle-pred: hackathons/evehicle_pred
+  expeditionds: hackathons/expeditionDS
+  fdc-v5-atom-auto: work_projects/fdc-v5-atom-auto
+  fiass: hackathons/fiass
+  findocs: legal/finDocs
+  gigaschool-hackathon-2026: hackathons/gigaschool_hackathon_2026
+  hh-matcher: career/hh-matcher
+  insurance: hackathons/insurance
+  kaggle: hackathons/kaggle
+  komanda-2: hackathons/komanda-2
+  law-rag-review: work_projects/law_rag_review
+  lawcopilot: work_projects/lawcopilot
+  lawcopilot-api: work_projects/lawcopilot-api
+  mlaw-rag: legal/mlaw-rag
+  platform: work_projects/platform
+  product-factory: hackathons/product_factory
+  ptcg-playground-agent: hackathons/ptcg-playground-agent
+  rsna-knee: hackathons/rsna_knee
+  shared-infrastructure: infra/shared-infrastructure
+  syneps-syneps-frontend: work_projects/syneps/syneps-frontend
+  telemetry: work_projects/telemetry
+  ukassa-mcp: hackathons/ukassa_mcp
+  vkrmgimo: study/vkrMgimo
+
+# Archived explicitly (the empty twins of `moves` are archived by
+# --archive-duplicates; `demo` was the eval seed under /tmp).
+archive:
+  - demo
+
+# Roots are gone and the folders were not moved anywhere: the database is the
+# only copy of their history, so they stay active but detached (marked in
+# project.config.detached and skipped by the importer).
+detached:
+  - bot-history
+  - chem-trial
+  - clients-tatyana-mgimo-school21

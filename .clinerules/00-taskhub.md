@@ -43,6 +43,22 @@ The database (`TASKHUB_DB_URL`, default `$TASKHUB_HOME/taskhub.db`, where
 Idempotency key: `note.external_ref = "<relative path>:<entry key>"`, unique per
 project. Re-running import updates/skips, never duplicates.
 
+## Registry administration (M16)
+
+Slug is immutable, `root_path` is the location; identity is the resolved root.
+
+| Task | Command |
+|---|---|
+| New folders | `uv run taskhub sync-projects --root ~/Repositories --dry-run` then without `--dry-run` |
+| Folder moved | `uv run taskhub move-project --slug <slug> --root <path>` (items stay) |
+| Duplicates | `uv run taskhub sync-projects --archive-duplicates` |
+| Folder deleted | `uv run taskhub sync-projects --archive-missing` (refused if the project has data) |
+| Health | `uv run taskhub audit-projects --root ~/Repositories` |
+| Restore | `uv run taskhub archive-project --slug <slug> --restore` |
+
+Never delete a project row and never archive one that still has work items
+without `--force`; a missing root makes a project `detached`, not archived.
+
 ## Quality gates
 
 ```bash
